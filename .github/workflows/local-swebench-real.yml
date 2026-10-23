@@ -2,6 +2,7 @@ name: SWE-bench real issue patch proposals
 on:
   push:
     branches: [experiment/local-swebench-real-01]
+    paths: ['ci/swebench_real.py', '.github/workflows/local-swebench-real.yml']
   workflow_dispatch:
 permissions:
   contents: read
