@@ -44,6 +44,7 @@ def retrieve(root, issue, max_chars=9000, top_k=8):
         if len(content)>400000: continue
         defs=spans(content)
         names={name.lower() for name,_,_ in defs}
+        # Deterministic evidence: traceback path > issue module path > named symbols > path terms.
         score=0
         tags=[]
         if path.name.lower() in traceback_files:
