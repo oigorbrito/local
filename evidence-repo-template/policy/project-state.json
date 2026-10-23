@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "product_stage": "exploration",
+  "osps_baseline_version": "2026.08.28",
+  "osps_target_level": 1,
+  "project_kind": "code",
+  "maintainers_count": 1,
+  "consistent_users": "unknown",
+  "release": {
+    "made": false,
+    "version": null,
+    "evidence": null
+  },
+  "production_deployed": false,
+  "notes": "Record observable facts only. Product stage does not determine OSPS maturity.",
+  "enforce_local_gaps": false
+}

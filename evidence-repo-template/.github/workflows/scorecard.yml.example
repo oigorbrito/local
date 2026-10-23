@@ -1,0 +1,39 @@
+# Example only — not executed because the filename does not end in .yml.
+# Before enabling:
+# 1. Consult the current official ossf/scorecard-action workflow.
+# 2. Pin every third-party action to an exact commit SHA.
+# 3. Choose publish_results/code-scanning settings appropriate for public/private repo policy.
+# 4. Rename this file to scorecard.yml only after review.
+#
+# Official reference:
+# https://github.com/ossf/scorecard-action
+# https://github.com/ossf/scorecard/blob/main/.github/workflows/scorecard-analysis.yml
+
+name: OpenSSF Scorecard
+on:
+  schedule:
+    - cron: '30 1 * * 6'
+  branch_protection_rule:
+  push:
+    branches: [main]
+
+permissions: read-all
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      contents: read
+    steps:
+      # Replace placeholders with exact commit SHAs from the official workflow.
+      - uses: actions/checkout@<PINNED_COMMIT_SHA>
+      - uses: ossf/scorecard-action@<PINNED_COMMIT_SHA>
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: github/codeql-action/upload-sarif@<PINNED_COMMIT_SHA>
+        with:
+          sarif_file: results.sarif

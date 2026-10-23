@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence-driven repository project state",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "product_stage",
+    "osps_baseline_version",
+    "osps_target_level",
+    "project_kind",
+    "maintainers_count",
+    "consistent_users",
+    "release",
+    "production_deployed",
+    "enforce_local_gaps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "product_stage": {
+      "type": "string"
+    },
+    "osps_baseline_version": {
+      "const": "2026.08.28"
+    },
+    "osps_target_level": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3
+    },
+    "project_kind": {
+      "enum": [
+        "code",
+        "non-code"
+      ]
+    },
+    "maintainers_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "consistent_users": {
+      "enum": [
+        "unknown",
+        "none",
+        "small",
+        "large"
+      ]
+    },
+    "release": {
+      "type": "object",
+      "required": [
+        "made",
+        "version",
+        "evidence"
+      ],
+      "properties": {
+        "made": {
+          "type": "boolean"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "production_deployed": {
+      "type": "boolean"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "enforce_local_gaps": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}
