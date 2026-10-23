@@ -1,0 +1,57 @@
+name: Official SWE-bench patch grading
+on:
+  push:
+    branches: [experiment/local-swebench-real-01]
+    paths: ['ci/build_predictions.py', '.github/workflows/local-swebench-grade.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  grade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - model: qwen2.5-coder:1.5b
+            artifact: swebench-1
+          - model: qwen2.5-coder:3b
+            artifact: swebench-2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve original generation artifacts without new inference
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: ${{ matrix.artifact }}
+        run: |
+          mkdir -p original
+          gh run download 39997928500 --repo oigorbrito/local --name "$ARTIFACT_NAME" --dir original
+      - name: Build exact prediction records
+        env:
+          MODEL: ${{ matrix.model }}
+        run: python3 ci/build_predictions.py original "$MODEL" predictions.jsonl
+      - name: Install official SWE-bench evaluator
+        run: python3 -m pip install swebench
+      - name: Grade original patches on SWE-bench Lite dev
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          python3 -m swebench.harness.run_evaluation \
+            --dataset_name princeton-nlp/SWE-bench_Lite \
+            --split dev \
+            --predictions_path predictions.jsonl \
+            --max_workers 1 \
+            --run_id "local-${{ github.run_id }}-${{ strategy.job-index }}"
+      - name: Save grading evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-grade-${{ strategy.job-index }}
+          path: |
+            predictions.jsonl
+            evaluation_results/
+            logs/run_evaluation/
+          if-no-files-found: warn
+          retention-days: 7
