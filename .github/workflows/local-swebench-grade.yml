@@ -33,7 +33,14 @@ jobs:
           MODEL: ${{ matrix.model }}
         run: python3 ci/build_predictions.py original "$MODEL" predictions.jsonl
       - name: Install official SWE-bench evaluator
-        run: python3 -m pip install swebench
+        run: |
+          python3 -m pip install 'swebench==4.1.0'
+          python3 -m pip show swebench
+          python3 -m swebench.harness.run_evaluation --help >/dev/null
+      - name: Environment storage gate
+        run: |
+          df -h . /var/lib/docker || true
+          docker info --format '{{json .DriverStatus}}'
       - name: Grade original patches on SWE-bench Lite dev
         env:
           MODEL: ${{ matrix.model }}
