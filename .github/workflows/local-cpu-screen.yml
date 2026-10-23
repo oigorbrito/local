@@ -1,0 +1,45 @@
+
+name: Local inference CPU screen
+on:
+  push:
+    branches: [experiment/local-cpu-screen-01]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu-models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ["qwen2.5-coder:1.5b", "deepseek-coder:1.3b", "qwen3:1.7b"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Environment
+        run: |
+          nproc
+          free -h
+          docker version
+      - name: Local runtime
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 40); do if curl -fsS http://localhost:11434/api/tags; then break; fi; sleep 2; done
+      - name: Download open-weight model
+        run: ollama pull "$MODEL"
+        env:
+          MODEL: ${{ matrix.model }}
+      - name: Functional benchmark
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          docker pull python:3.12-slim
+          python3 ci/screen.py --model "$MODEL" --out results
+      - name: Retain scores and responses
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screen-${{ strategy.job-index }}
+          path: results/
+          retention-days: 7
