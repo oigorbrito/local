@@ -1,0 +1,100 @@
+name: Aider upstream functional coding benchmark
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  functional:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ['nemotron-3-nano:4b']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare open-weight local runtime
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://localhost:11434/api/tags >/dev/null && break; sleep 2; done
+          curl -fsS http://localhost:11434/api/tags >/dev/null
+      - name: Download candidate and record exact runtime
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          ollama pull "$MODEL"
+          mkdir -p evidence
+          ollama show "$MODEL" > evidence/model.txt
+          ollama --version > evidence/ollama-version.txt
+      - name: Runtime health and resource diagnostics (no model inference)
+        run: |
+          mkdir -p evidence
+          curl --fail --max-time 10 -sS http://127.0.0.1:11434/api/ps | tee evidence/ollama-loaded.json
+          curl --fail --max-time 10 -sS http://127.0.0.1:11434/api/tags | tee evidence/ollama-tags.json
+          free -h | tee evidence/host-memory.txt
+          nproc | tee evidence/host-cpus.txt
+          df -h . | tee evidence/host-disk.txt
+      - name: Obtain original Aider benchmark and public exercise suite
+        run: |
+          git clone --depth 1 https://github.com/Aider-AI/aider.git upstream-aider
+          git clone --depth 1 https://github.com/Aider-AI/polyglot-benchmark.git upstream-exercises
+          git -C upstream-aider rev-parse HEAD > evidence/aider-commit.txt
+          git -C upstream-exercises rev-parse HEAD > evidence/exercises-commit.txt
+      - name: Execute upstream benchmark inside isolated container
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          mkdir -p upstream-aider/tmp.benchmarks
+          cp -a upstream-exercises upstream-aider/tmp.benchmarks/polyglot-benchmark
+          docker run --rm --network host --cpus 4 --memory 12g --pids-limit 512 --security-opt no-new-privileges \
+            -e OLLAMA_API_BASE=http://127.0.0.1:11434 \
+            -e MODEL="$MODEL" \
+            -v "$PWD/upstream-aider:/workspace" -w /workspace \
+            python:3.11-bookworm bash -euc '
+              apt-get update -qq
+              apt-get install -y -qq git >/dev/null
+              export AIDER_DOCKER=1
+              git config --global --add safe.directory /workspace
+              git rev-parse HEAD
+              pip install -q -e ".[dev]"
+              mkdir -p tmp.benchmarks
+              timeout --signal=TERM --kill-after=20s 1500s python benchmark/benchmark.py "local-functional-01" \
+                --model "ollama_chat/$MODEL" --edit-format whole \
+                --threads 1 --tries 1 --languages python --num-tests 1 \
+                --keywords affine-cipher \
+                --exercises-dir polyglot-benchmark
+              count=$(find tmp.benchmarks -name '.aider.results.json' | wc -l)
+              echo "BENCHMARK_RESULT_FILES=$count"
+              if test "$count" -ne 1; then echo "ERROR: expected exactly one functional exercise result" >&2; exit 1; fi
+              find tmp.benchmarks -name .aider.results.json -print -exec cat {} \\;
+
+            '
+      - name: Validate per-exercise functional record
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          files = sorted(Path("upstream-aider/tmp.benchmarks").rglob(".aider.results.json"))
+          if len(files) != 1:
+              raise SystemExit(f"INVALID_HARNESS: expected one exercise result, found {len(files)}")
+          p = files[0]
+          record = json.loads(p.read_text())
+          if not isinstance(record, dict) or not record:
+              raise SystemExit("INVALID_HARNESS: empty or invalid exercise record")
+          summary = {"exercise": p.parent.name, "source": str(p), "record": record}
+          output = Path("evidence/functional-control-summary.json")
+          output.write_text(json.dumps(summary, indent=2, default=str) + "\\n")
+          print("FUNCTIONAL_EXERCISE_RECORD", json.dumps(summary, default=str))
+          PY
+      - name: Preserve benchmark results and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aider-functional-${{ strategy.job-index }}
+          path: |
+            evidence/
+            upstream-aider/tmp.benchmarks/
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
