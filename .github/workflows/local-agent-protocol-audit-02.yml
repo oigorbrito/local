@@ -1,0 +1,33 @@
+name: Audit revised tool protocol traces
+on:
+  push:
+    branches: [experiment/local-agent-protocol-audit-02]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover original revised-protocol traces
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in 0 1 2; do
+            mkdir -p "traces/$i"
+            gh run download 40006035688 --repo oigorbrito/local --name "assisted-$i" --dir "traces/$i"
+          done
+      - name: Classify tool use and failures
+        run: |
+          for i in 0 1 2; do
+            python3 ci/audit_tool_traces.py "traces/$i" --output "trace-report-$i.json"
+            cat "trace-report-$i.json"
+          done
+      - name: Store reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-02-diagnostics
+          path: trace-report-*.json
+          retention-days: 14
