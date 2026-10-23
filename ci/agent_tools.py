@@ -44,7 +44,7 @@ def main():
                 cmd(["git","checkout","--quiet",ins["base_commit"]],cwd=root)
                 target=select_target(root,filename,ins["repo"])
                 relative=str(target.relative_to(root))
-                system=("Fix a real issue in the checked out repository. You can use exactly four tool calls "
+                system=("Fix a real issue in the checked out repository. You may use up to six tool calls "
                         "or fewer. Output exactly a JSON object for one action each turn. Available actions: "
                         '{"tool":"search","term":"string"}, {"tool":"read","start":1}, '
                         '{"tool":"edit","old":"exact text","new":"replacement"}, {"tool":"test"}, {"tool":"finish"}. '
