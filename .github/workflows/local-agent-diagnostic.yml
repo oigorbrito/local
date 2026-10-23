@@ -1,0 +1,32 @@
+name: Audit saved tool traces
+on:
+  push:
+    branches: [experiment/local-agent-diagnostic-01]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve saved inference evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for i in 0 1 2; do
+            mkdir -p "traces/$i"
+            gh run download 40001187543 --repo oigorbrito/local --name "assisted-$i" --dir "traces/$i"
+          done
+      - name: Audit actual tool use
+        run: |
+          for i in 0 1 2; do
+            python3 ci/audit_tool_traces.py "traces/$i" --output "trace-report-$i.json"
+          done
+      - name: Preserve diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-protocol-diagnostics
+          path: trace-report-*.json
+          retention-days: 14
