@@ -24,3 +24,17 @@ Implementação `integrated_edit.py` liga o recuperador determinístico `retriev
 Os scripts completos e JSON estão no artefato `LOCAL-07-integrated-edit.zip` anexado à conversa, **não no GitHub nesta mudança**. Esta PR contém o relatório e seu inventário de hashes; para executar no repositório será necessário incorporar os arquivos sob revisão em commit posterior. Não registrar um teste como aprovado no CI sem que código e fixtures estejam presentes lá.
 
 Estado: `OFFLINE_RETRIEVAL_AND_PATCH_GATE_PASS`. Permanecem pendentes: revisão independente, integração a um executor real sem exposição de oráculos, e avaliação oficial sobre patches efetivamente produzidos por modelos. Não houve novas inferências, merges ou alteração da main.
+
+## Incorporação verificada no GitHub (23/10/2026)
+Códigos originais LOCAL-07 incorporados à branch experimental como:
+- `experiments/local07/retrieve_context.py`
+- `experiments/local07/integrated_edit.py`
+- `experiments/local07/test_integrated_edit.py`
+- `.github/workflows/local07-offline.yml` (gate offline agrupado, sem inferência).
+
+Execução CI [#40041665260](https://github.com/oigorbrito/local/actions/runs/40041665260): **PASS**, compilação Python e 2/2 contratos. SHA256 calculados **no runner GitHub**, idênticos aos arquivos no ZIP LOCAL-07:
+- retrieve_context.py: `41fa4efd9e73f33b828ec754e06c902a7f7fddb18d6953ea64fcd635351d4cd9`
+- integrated_edit.py: `10e1e219160600f3dcd6826a5d03a0bdfe44680882754007a15a0f627a0464c4`
+- test_integrated_edit.py: `b38a2f97b000a30ee217f003447a6d18ff8fd901810f6dafa81ea60e8ffd4695`
+
+Os scripts complementares `real_checkout_gate.py` e os resultados JSON ainda permanecem no ZIP original, e o CI não reexecutou o gate das três issues porque essas fontes privadas não estão versionadas. A integração no GitHub é **gate de contrato**, não certificação de eficácia.
