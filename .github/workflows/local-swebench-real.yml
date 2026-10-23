@@ -1,0 +1,37 @@
+name: SWE-bench real issue patch proposals
+on:
+  push:
+    branches: [experiment/local-swebench-real-01]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  issue-patches:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ["deepseek-coder:1.3b", "qwen2.5-coder:1.5b", "qwen2.5-coder:3b"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start local inference
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 40); do if curl -fsS http://localhost:11434/api/tags; then break; fi; sleep 2; done
+      - name: Download model
+        env:
+          MODEL: ${{ matrix.model }}
+        run: ollama pull "$MODEL"
+      - name: Real issue patch proposals
+        env:
+          MODEL: ${{ matrix.model }}
+        run: python3 ci/swebench_real.py --model "$MODEL" --out results
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swebench-${{ strategy.job-index }}
+          path: results/
+          retention-days: 7
