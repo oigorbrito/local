@@ -56,7 +56,8 @@ jobs:
               mkdir -p tmp.benchmarks
               python benchmark/benchmark.py "local-functional-01" \
                 --model "ollama_chat/$MODEL" --edit-format whole \
-                --threads 1 --num-tests 12 \
+                --threads 1 --tries 1 --languages python --num-tests 12 \
+                --keywords affine-cipher,beer-song,book-store,bottle-song,bowling,connect,dominoes,dot-dsl,food-chain,forth,go-counting,grade-school \
                 --exercises-dir tmp.benchmarks/polyglot-benchmark
               count=$(find tmp.benchmarks -name '.aider.results.json' | wc -l)
               echo "BENCHMARK_RESULT_FILES=$count"
