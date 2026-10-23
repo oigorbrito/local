@@ -49,6 +49,7 @@ jobs:
             python:3.11-bookworm bash -euc '
               apt-get update -qq
               apt-get install -y -qq git >/dev/null
+              export AIDER_DOCKER=1
               git config --global --add safe.directory /workspace
               git rev-parse HEAD
               pip install -q -e ".[dev]"
@@ -57,6 +58,9 @@ jobs:
                 --model "ollama_chat/$MODEL" --edit-format whole \
                 --threads 1 --num-tests 12 \
                 --exercises-dir tmp.benchmarks/polyglot-benchmark
+              count=$(find tmp.benchmarks -name '.aider.results.json' | wc -l)
+              echo "BENCHMARK_RESULT_FILES=$count"
+              if test "$count" -lt 12; then echo "ERROR: benchmark did not complete 12 exercises" >&2; exit 1; fi
             '
       - name: Preserve benchmark results and provenance
         if: always()
