@@ -1,7 +1,7 @@
 name: Local tool-assisted real issues
 on:
   push:
-    branches: [experiment/local-agent-tools-01]
+    branches: [experiment/local-agent-protocol-02]
     paths:
       - 'ci/agent_tools.py'
       - '.github/workflows/local-agent-tools.yml'
