@@ -50,3 +50,12 @@ All numbers above apply only to their original conditions. They must NOT be adde
 ## Current conclusion
 
 No model is eliminated on coding ability; no winner is selected. Little-Coder is the principal *executor hypothesis* because published matched-model evidence is stronger than SmallCode's non-matched benchmark claims, **not** because it is proven fastest on 4 GB VRAM.
+
+## First Little-Coder control evidence (2026-10-23)
+
+- Run: https://github.com/oigorbrito/local/actions/runs/40026029169; original upstream Little-Coder, Ollama Nemotron 3 Nano 4B, Python `affine-cipher`, `--no-retry`.
+- GitHub job: **success** for harness operation. Actual exercise: **fail**, elapsed **902.57 seconds**, **11 turns**.
+- Saved test output shows `AffineCipherTest.test_decode_a_sentence`: expected `anobstacleisoftenasteppingstone`, observed `None`; pytest `1 failed in 0.03s` after `-x` short circuit.
+- Upstream `PiRpc.prompt_and_collect(... timeout=900)` establishes a cap near observed runtime. The artifact does **not** contain sufficient agent trace to distinguish poor editing from incomplete execution at timeout. Classify **VALID_TEST_FAILED / POSSIBLE_TIMEOUT_CENSORING**, not an elimination or comparative win/loss.
+- Do not rerun merely to remove this negative result. A new functional round must capture: explicit timeout flag, tool/edit trace, actual tests executed, total generation tokens, identical exercise IDs and budget for both Aider and Little-Coder. If these cannot be met, mark comparison INVALID rather than score it.
+- Aider run 40024766616 remained in progress during this audit; do not infer an Aider result yet.
