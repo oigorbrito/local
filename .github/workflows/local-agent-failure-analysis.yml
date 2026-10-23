@@ -1,0 +1,25 @@
+name: Analyze official failed issue patches
+on:
+  push:
+    branches: [experiment/local-agent-failure-analysis-01]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch original official grader artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 40014441296 --repo oigorbrito/local --name official-grade-0 --dir official
+      - name: Classify unresolved tests and regressions
+        run: python3 ci/analyze_official_failures.py official --out official-failure-analysis.json
+      - name: Publish analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-failure-analysis
+          path: official-failure-analysis.json
+          retention-days: 14
