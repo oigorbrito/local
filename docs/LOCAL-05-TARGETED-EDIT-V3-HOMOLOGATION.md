@@ -37,3 +37,17 @@ Busca ampliada por dados preexistentes, **sem inferência**:
 - Persistem transcrições PowerShell e documentação dos pilotos, sem os bytes originais do V3 disponibilizados ao ambiente. O caminho local Windows registrado não é automaticamente acessível pela conexão GitHub.
 
 **Gate mantém BLOCKED_SOURCE_UNAVAILABLE.** Única ação que desbloqueia auditoria de código do V3 é disponibilizar o pacote original, sua árvore ou upload com bytes verificáveis. Não presumir que outro projeto com nome `block05` seja o mesmo artefato.
+
+## Atualização por fontes originais recebidas em 23/10/2026
+
+**O bloqueio geral SOURCE_UNAVAILABLE foi parcialmente resolvido.** Foram inspecionados três ZIPs enviados diretamente pelo usuário. Dois ZIPs de ~184 MB possuem 15.319 entradas idênticas em conteúdo (CRC/tamanho), mas SHA-256 externos diferentes; outro contém runner inicial. SHA dos ZIPs (2), (3) e (1): `109b3b352056616e96a6d05819454ee0fababcac7f0a8a7b0e893f3932374711`, `52a808dd6cb8e3a0832537b358b53e31981bd01558044283499f1d40626f8e22`, `cfc4739ea1de7d222d9875ed356a90526b506525d77a17b46f288f8094ead6fd`.
+
+Código efetivamente recuperado: `local_bench_04.py`, `local_bench_04_v2.py`, `file_edit_runner.py`, testes `test_contract.py` e `test_file_edit.py`, manifestos, checkpoints e 18 traces (6 PILOT01 + 6 PILOT02 + 6 file-edit-01). **Não se encontrou o executável específico do Targeted Edit V3**, distinto do runner de substituição integral.
+
+- Execução local isolada **sem inferência**: `python -m unittest -v test_contract test_file_edit` → **9 PASS / 0 FAIL**; compilação sintática de cinco scripts → PASS.
+- PILOT01: **0/6** `patch_validated`. PILOT02: **0/6** `patch_validated`.
+- File-edit-01: LFM teve **3/3 OUTPUT_TRUNCATED**; Nemotron teve **1 OUTPUT_TRUNCATED, 1 PYTHON_SYNTAX_ERROR, 1 DIFF_CHECK_FAILED** com aviso de LF/CRLF.
+- PILOT02: seis hashes de resposta divergentes em bytes persistidos, mas recuperados pela normalização CRLF→LF. File-edit-01: seis casos equivalentes. Não alegar integridade byte a byte.
+- Manifesto de file-edit-01 mantém `requested_revision: main` e status `prepared_not_evaluated`; não demonstra execução do julgamento oficial.
+
+**Estado atualizado:** `CONTRACTS_PASS_9_OF_9`; `HISTORICAL_FAILURES_VERIFIED`; `TARGETED_EDIT_V3_SOURCE_STILL_UNAVAILABLE`; `OFFICIAL_RESOLUTION_NOT_VERIFIED`. O código recuperado não autoriza promover V3 como homologado. Nenhum benchmark de modelo foi iniciado e a main permaneceu intacta.
