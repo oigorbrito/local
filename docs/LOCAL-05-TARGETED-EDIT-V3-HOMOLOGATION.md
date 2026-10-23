@@ -28,3 +28,12 @@ Data: 23/10/2026. Projeto: oigorbrito/local. Gate atual: **BLOCKED_SOURCE_UNAVAI
 O próximo ato, sem inferência, é incorporar o ZIP/arquivos já existentes de `C:\\Users\\igorb\\Downloads\\local-bench-04\\local-bench-04` ou o artefato `LOCAL-BENCH-04 Targeted Edit V3` ao contexto de auditoria, mantendo cópia e hashes. A partir daí executar unicamente preflight/contratos locais, fixtures e avaliador independente com soluções-oráculo isoladas do input — sem reutilizar resultados para forçar um ranking.
 
 PR #16 permanece draft. Não copiar esses dados para FineCore, não fazer merge/force push, não instalar modelos, não rodar inferências pagas.
+
+## Verificação complementar de fontes (23/10/2026)
+
+Busca ampliada por dados preexistentes, **sem inferência**:
+- `local-eval-block05.zip` encontrado em anexos anteriores e aberto por inspeção de índice: contém 10 entradas (`src/local_eval/core.py`, `src/local_eval/adapters.py`, `src/local_eval/__main__.py`, `tests/test_core.py`, duas tarefas JSON e metadados), **não** o Targeted Edit V3. Tamanho do ZIP 8.157 bytes. Não usar esse avaliador distinto como evidência de homologação V3.
+- As branches `experiment/local-repair-01`, `experiment/local-swebench-real-01`, `experiment/local-agent-tools-01` e `experiment/local-failure-gate-02` foram inspecionadas via árvores Git. Contêm scripts `ci/repair.py`, `ci/swebench_real.py` e `ci/agent_tools.py` conforme a branch, mas **nenhum arquivo identificado como pacote Targeted Edit V3**; esses scripts são experimentos de outro pipeline, não equivalentes sem prova de identidade.
+- Persistem transcrições PowerShell e documentação dos pilotos, sem os bytes originais do V3 disponibilizados ao ambiente. O caminho local Windows registrado não é automaticamente acessível pela conexão GitHub.
+
+**Gate mantém BLOCKED_SOURCE_UNAVAILABLE.** Única ação que desbloqueia auditoria de código do V3 é disponibilizar o pacote original, sua árvore ou upload com bytes verificáveis. Não presumir que outro projeto com nome `block05` seja o mesmo artefato.
