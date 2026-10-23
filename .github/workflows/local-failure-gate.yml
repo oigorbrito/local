@@ -1,0 +1,26 @@
+name: Real issue failure gate
+on:
+  push:
+    branches: [experiment/local-failure-gate-02]
+    paths: ['ci/real_issue_gate.py', '.github/workflows/local-failure-gate.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get original official failure classification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 40015184698 --repo oigorbrito/local --name official-failure-analysis --dir inputs
+      - name: Per-issue acceptance and regression audit
+        run: python3 ci/real_issue_gate.py inputs/official-failure-analysis.json --out per-issue-gate.json
+      - name: Preserve auditable report
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-issue-gate
+          path: per-issue-gate.json
+          retention-days: 14
