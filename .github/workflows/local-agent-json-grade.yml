@@ -2,7 +2,7 @@ name: Official SWE-bench assisted patch grading
 on:
   push:
     branches: [experiment/local-agent-json-grade-03]
-    paths: ['.github/workflows/local-agent-grade.yml']
+    paths: ['.github/workflows/local-agent-json-grade.yml']
   workflow_dispatch:
 permissions:
   contents: read
