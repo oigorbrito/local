@@ -1,0 +1,68 @@
+name: Aider upstream functional coding benchmark
+on:
+  push:
+    branches: [experiment/aider-functional-01]
+    paths: ['.github/workflows/aider-functional.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  functional:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ['nemotron-3-nano:4b', 'phi4-mini:3.8b', 'ministral-3:3b', 'qwen2.5-coder:7b']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare open-weight local runtime
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://localhost:11434/api/tags >/dev/null && break; sleep 2; done
+          curl -fsS http://localhost:11434/api/tags >/dev/null
+      - name: Download candidate and record exact runtime
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          ollama pull "$MODEL"
+          mkdir -p evidence
+          ollama show "$MODEL" > evidence/model.txt
+          ollama --version > evidence/ollama-version.txt
+      - name: Obtain original Aider benchmark and public exercise suite
+        run: |
+          git clone --depth 1 https://github.com/Aider-AI/aider.git upstream-aider
+          git clone --depth 1 https://github.com/Aider-AI/polyglot-benchmark.git upstream-exercises
+          git -C upstream-aider rev-parse HEAD > evidence/aider-commit.txt
+          git -C upstream-exercises rev-parse HEAD > evidence/exercises-commit.txt
+      - name: Execute upstream benchmark inside isolated container
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          mkdir -p upstream-aider/tmp.benchmarks
+          cp -a upstream-exercises upstream-aider/tmp.benchmarks/polyglot-benchmark
+          docker run --rm --network host --cpus 4 --memory 12g --pids-limit 512 --security-opt no-new-privileges \
+            -e OLLAMA_API_BASE=http://127.0.0.1:11434 \
+            -e MODEL="$MODEL" \
+            -v "$PWD/upstream-aider:/workspace" -w /workspace \
+            python:3.11-bookworm bash -euc '
+              apt-get update -qq
+              apt-get install -y -qq git >/dev/null
+              pip install -q -e ".[dev]"
+              mkdir -p tmp.benchmarks
+              python benchmark/benchmark.py "local-functional-01" \
+                --model "ollama_chat/$MODEL" --edit-format whole \
+                --threads 1 --num-tests 12 \
+                --exercises-dir tmp.benchmarks/polyglot-benchmark
+            '
+      - name: Preserve benchmark results and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aider-functional-${{ strategy.job-index }}
+          path: |
+            evidence/
+            upstream-aider/tmp.benchmarks/
+          if-no-files-found: warn
+          retention-days: 14
