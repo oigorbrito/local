@@ -1,0 +1,71 @@
+name: Little-Coder independent second task
+on:
+  push:
+    branches: [experiment/local-restart-protocol-01]
+    paths: ['.github/workflows/local-little-coder-second-task.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  beer-song:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare local inference
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && break; sleep 2; done
+          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
+          ollama pull nemotron-3-nano:4b
+      - name: Retrieve untouched executor and benchmark
+        run: |
+          git clone --depth 1 https://github.com/itayinbarr/little-coder.git little-coder
+          git clone --depth 1 https://github.com/Aider-AI/polyglot-benchmark.git exercises
+          mkdir -p evidence "$HOME/Documents"
+          git -C little-coder rev-parse HEAD > evidence/little-coder-sha.txt
+          git -C exercises rev-parse HEAD > evidence/exercises-sha.txt
+          ollama show nemotron-3-nano:4b > evidence/model.txt
+          ln -s "$GITHUB_WORKSPACE/exercises" "$HOME/Documents/polyglot-benchmark"
+          test -d "$HOME/Documents/polyglot-benchmark/python/exercises/practice/beer-song"
+      - name: Install upstream dependencies
+        run: |
+          cd little-coder
+          npm ci
+          python3 -m pip install pytest
+      - name: Run independent functional exercise within fixed budget
+        run: |
+          cd little-coder
+          set +e
+          timeout --signal=TERM --kill-after=10s 420s python3 benchmarks/aider_polyglot.py --model ollama/nemotron-3-nano:4b --language python --exercise beer-song --no-retry --verbose
+          rc=$?
+          set -e
+          echo "EXECUTOR_EXIT_CODE=$rc"
+          printf '%s\n' "$rc" > ../evidence/exit-code.txt
+          if test "$rc" -eq 124 || test "$rc" -eq 137; then
+            echo "TIMEOUT_CENSORED (not model failure)"
+            exit 1
+          fi
+          if test "$rc" -ne 0; then exit "$rc"; fi
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("benchmarks/results_full_polyglot.json")
+          if not p.exists(): raise SystemExit("INVALID: no actual exercise result")
+          data=json.loads(p.read_text())
+          rec=data["exercises"].get("python/beer-song")
+          if not rec or rec.get("status") not in ("pass_1","fail") or rec.get("elapsed_s",0)<=0:
+              raise SystemExit("INVALID: incomplete test record: "+repr(rec))
+          print("BEER_SONG_FUNCTIONAL_RESULT",json.dumps(rec,sort_keys=True))
+          PY
+      - name: Publish raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: little-coder-beer-song-nemotron4b
+          path: |
+            evidence/
+            little-coder/benchmarks/results_full_polyglot.json
+            little-coder/benchmarks/full_polyglot_logs/
+          if-no-files-found: warn
+          retention-days: 14
