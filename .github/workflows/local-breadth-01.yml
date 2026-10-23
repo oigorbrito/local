@@ -1,0 +1,60 @@
+name: Breadth-first local model comparison
+on:
+  push:
+    branches: [experiment/local-model-breadth-01]
+    paths: ['.github/workflows/local-breadth-01.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  breadth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        model:
+          - 'nemotron-3-nano:4b'
+          - 'qwen3.5:2b'
+          - 'qwen3.5:4b'
+          - 'phi4-mini:3.8b'
+          - 'ministral-3:3b'
+          - 'qwen2.5-coder:7b'
+          - 'codegemma:2b'
+          - 'deepseek-coder:6.7b'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install runtime and verify readiness
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:11434/api/tags >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          cat /tmp/ollama.log
+          exit 1
+      - name: Download open-weight candidate and record digest
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          ollama pull "$MODEL"
+          ollama show "$MODEL" > model-metadata.txt
+          ollama list
+      - name: Same functional screen as earlier six-model baseline
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          docker pull python:3.12-slim
+          python3 ci/screen.py --model "$MODEL" --out results
+      - name: Persist comparable raw outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: breadth-${{ strategy.job-index }}
+          path: |
+            results/
+            model-metadata.txt
+          if-no-files-found: warn
+          retention-days: 14
