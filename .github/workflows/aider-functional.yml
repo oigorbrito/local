@@ -1,8 +1,5 @@
 name: Aider upstream functional coding benchmark
 on:
-  push:
-    branches: [experiment/aider-functional-01]
-    paths: ['.github/workflows/aider-functional.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -73,4 +70,5 @@ jobs:
             evidence/
             upstream-aider/tmp.benchmarks/
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 14
