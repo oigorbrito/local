@@ -31,7 +31,7 @@ jobs:
       - name: Build exact prediction records
         env:
           MODEL: ${{ matrix.model }}
-        run: python3 ci/build_predictions.py original "$MODEL" predictions.jsonl
+        run: python3 ci/build_predictions.py original "${MODEL//:/_}" predictions.jsonl
       - name: Install official SWE-bench evaluator
         run: |
           python3 -m pip install 'swebench==4.1.0'
@@ -51,14 +51,20 @@ jobs:
             --predictions_path predictions.jsonl \
             --max_workers 1 \
             --run_id "local-${{ github.run_id }}-${{ strategy.job-index }}"
+      - name: Retain compact official results
+        if: always()
+        run: |
+          mkdir -p portable-evidence
+          find . -type f \( -name '*.json' -o -name '*.jsonl' \) -path '*evaluation*' -print | while IFS= read -r file; do
+            dest="portable-evidence/$(printf '%s' "$file" | sha256sum | cut -c1-16).json"
+            cp "$file" "$dest"
+          done
+          if test -f predictions.jsonl; then cp predictions.jsonl portable-evidence/predictions.jsonl; fi
       - name: Save grading evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: official-grade-${{ strategy.job-index }}
-          path: |
-            predictions.jsonl
-            evaluation_results/
-            logs/run_evaluation/
+          path: portable-evidence/
           if-no-files-found: warn
           retention-days: 7
