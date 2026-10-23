@@ -1,5 +1,8 @@
 name: Aider upstream functional coding benchmark
 on:
+  push:
+    branches: [experiment/aider-functional-01]
+    paths: ['.github/workflows/aider-functional.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: ['nemotron-3-nano:4b', 'phi4-mini:3.8b', 'ministral-3:3b', 'qwen2.5-coder:7b']
+        model: ['nemotron-3-nano:4b']
     steps:
       - uses: actions/checkout@v4
       - name: Prepare open-weight local runtime
@@ -59,6 +62,7 @@ jobs:
               count=$(find tmp.benchmarks -name '.aider.results.json' | wc -l)
               echo "BENCHMARK_RESULT_FILES=$count"
               if test "$count" -ne 1; then echo "ERROR: expected exactly one functional exercise result" >&2; exit 1; fi
+              find tmp.benchmarks -name .aider.results.json -print -exec cat {} \;
             '
       - name: Preserve benchmark results and provenance
         if: always()
