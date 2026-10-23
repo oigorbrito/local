@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 jobs:
-  isogram:
+  beer-song:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -28,7 +28,7 @@ jobs:
           git -C exercises rev-parse HEAD > evidence/exercises-sha.txt
           ollama show nemotron-3-nano:4b > evidence/model.txt
           ln -s "$GITHUB_WORKSPACE/exercises" "$HOME/Documents/polyglot-benchmark"
-          test -d "$HOME/Documents/polyglot-benchmark/python/exercises/practice/isogram"
+          test -d "$HOME/Documents/polyglot-benchmark/python/exercises/practice/beer-song"
       - name: Install upstream dependencies
         run: |
           cd little-coder
@@ -38,7 +38,7 @@ jobs:
         run: |
           cd little-coder
           set +e
-          timeout --signal=TERM --kill-after=10s 420s python3 benchmarks/aider_polyglot.py --model ollama/nemotron-3-nano:4b --language python --exercise isogram --no-retry --verbose
+          timeout --signal=TERM --kill-after=10s 420s python3 benchmarks/aider_polyglot.py --model ollama/nemotron-3-nano:4b --language python --exercise beer-song --no-retry --verbose
           rc=$?
           set -e
           echo "EXECUTOR_EXIT_CODE=$rc"
@@ -53,16 +53,16 @@ jobs:
           p=pathlib.Path("benchmarks/results_full_polyglot.json")
           if not p.exists(): raise SystemExit("INVALID: no actual exercise result")
           data=json.loads(p.read_text())
-          rec=data["exercises"].get("python/isogram")
+          rec=data["exercises"].get("python/beer-song")
           if not rec or rec.get("status") not in ("pass_1","fail") or rec.get("elapsed_s",0)<=0:
               raise SystemExit("INVALID: incomplete test record: "+repr(rec))
-          print("ISOGRAM_FUNCTIONAL_RESULT",json.dumps(rec,sort_keys=True))
+          print("BEER_SONG_FUNCTIONAL_RESULT",json.dumps(rec,sort_keys=True))
           PY
       - name: Publish raw evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: little-coder-isogram-nemotron4b
+          name: little-coder-beer-song-nemotron4b
           path: |
             evidence/
             little-coder/benchmarks/results_full_polyglot.json
