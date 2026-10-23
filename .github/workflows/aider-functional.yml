@@ -27,6 +27,14 @@ jobs:
           mkdir -p evidence
           ollama show "$MODEL" > evidence/model.txt
           ollama --version > evidence/ollama-version.txt
+      - name: Runtime health and resource diagnostics (no model inference)
+        run: |
+          mkdir -p evidence
+          curl --fail --max-time 10 -sS http://127.0.0.1:11434/api/ps | tee evidence/ollama-loaded.json
+          curl --fail --max-time 10 -sS http://127.0.0.1:11434/api/tags | tee evidence/ollama-tags.json
+          free -h | tee evidence/host-memory.txt
+          nproc | tee evidence/host-cpus.txt
+          df -h . | tee evidence/host-disk.txt
       - name: Obtain original Aider benchmark and public exercise suite
         run: |
           git clone --depth 1 https://github.com/Aider-AI/aider.git upstream-aider
