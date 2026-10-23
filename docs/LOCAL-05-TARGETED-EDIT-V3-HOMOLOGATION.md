@@ -51,3 +51,13 @@ Código efetivamente recuperado: `local_bench_04.py`, `local_bench_04_v2.py`, `f
 - Manifesto de file-edit-01 mantém `requested_revision: main` e status `prepared_not_evaluated`; não demonstra execução do julgamento oficial.
 
 **Estado atualizado:** `CONTRACTS_PASS_9_OF_9`; `HISTORICAL_FAILURES_VERIFIED`; `TARGETED_EDIT_V3_SOURCE_STILL_UNAVAILABLE`; `OFFICIAL_RESOLUTION_NOT_VERIFIED`. O código recuperado não autoriza promover V3 como homologado. Nenhum benchmark de modelo foi iniciado e a main permaneceu intacta.
+
+## Gate de recuperação de arquivos — evidência primária ampliada
+Em 23/10/2026 foram lidos os **18 JSON de trace originais** incluídos no ZIP `local-bench-04 (2).zip`: 6 de PILOT01, 6 de PILOT02 e 6 de file-edit-01. Inspeção automatizada verificou o array `selected_files` de cada trace e confrontou-o com o arquivo relevante identificado no histórico da issue:
+- `marshmallow-code__marshmallow-1343`: relevante `schema.py`; selecionados `src/marshmallow/decorators.py`, `exceptions.py`, `warnings.py`; file-edit escolheu `decorators.py`.
+- `marshmallow-code__marshmallow-1359`: relevante `fields.py`; selecionados `decorators.py`, `exceptions.py`; file-edit escolheu `decorators.py`.
+- `pvlib__pvlib-python-1072`: relevante `temperature.py`; selecionados `pvlib/soiling.py`, `pvlib/version.py`; file-edit escolheu `soiling.py`.
+
+**Resultado: 0/18 traces incluíram o arquivo relevante no conjunto `selected_files`**. Esta é uma falha reproduzível de *recall* da recuperação para as três issues, repetida por configuração e estratégia; não são 18 issues independentes. O código `file_edit_runner.py` confirma que o caminho editado é `selected[0]` e valida apenas a segurança do caminho, não sua relevância semântica. Os nomes esperados vêm da identificação anterior dos pontos de reparo, não de execução de oráculo funcional neste turno.
+
+Conclusão causal delimitada: o protocolo antigo enviou contexto incorreto aos modelos, tornando a taxa de resolução oficial desses ensaios não interpretável como qualidade isolada do LLM. **Não implica que os modelos resolveriam os defeitos com recuperação correta.** Gate LOCAL-05/RETRIEVAL = FAIL_CONFIRMED. Gate V3_SOURCE = BLOCKED; nenhum novo modelo foi inferido, nenhum score antigo sobrescrito.
