@@ -2,7 +2,7 @@
 name: Local inference CPU screen
 on:
   push:
-    branches: [experiment/local-cpu-screen-01]
+    branches: [experiment/local-cpu-screen-02]
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        model: ["qwen2.5-coder:1.5b", "deepseek-coder:1.3b", "qwen3:1.7b"]
+        model: ["granite3.3:2b", "qwen2.5-coder:3b", "gemma3:1b"]
     steps:
       - uses: actions/checkout@v4
       - name: Environment
