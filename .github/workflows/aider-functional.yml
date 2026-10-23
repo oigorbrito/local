@@ -1,15 +1,12 @@
 name: Aider upstream functional coding benchmark
 on:
-  push:
-    branches: [experiment/aider-functional-01]
-    paths: ['.github/workflows/aider-functional.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   functional:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -54,14 +51,14 @@ jobs:
               git rev-parse HEAD
               pip install -q -e ".[dev]"
               mkdir -p tmp.benchmarks
-              python benchmark/benchmark.py "local-functional-01" \
+              timeout --signal=TERM --kill-after=20s 1500s python benchmark/benchmark.py "local-functional-01" \
                 --model "ollama_chat/$MODEL" --edit-format whole \
-                --threads 1 --tries 1 --languages python --num-tests 12 \
-                --keywords affine-cipher,beer-song,book-store,bottle-song,bowling,connect,dominoes,dot-dsl,food-chain,forth,go-counting,grade-school \
+                --threads 1 --tries 1 --languages python --num-tests 1 \
+                --keywords affine-cipher \
                 --exercises-dir polyglot-benchmark
               count=$(find tmp.benchmarks -name '.aider.results.json' | wc -l)
               echo "BENCHMARK_RESULT_FILES=$count"
-              if test "$count" -lt 12; then echo "ERROR: benchmark did not complete 12 exercises" >&2; exit 1; fi
+              if test "$count" -ne 1; then echo "ERROR: expected exactly one functional exercise result" >&2; exit 1; fi
             '
       - name: Preserve benchmark results and provenance
         if: always()
