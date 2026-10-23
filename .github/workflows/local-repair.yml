@@ -1,0 +1,39 @@
+name: Repair CPU screening
+on:
+  push:
+    branches: [experiment/local-repair-01]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ["deepseek-coder:1.3b", "qwen2.5-coder:1.5b", "granite3.3:2b"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup local inference
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 40); do if curl -fsS http://localhost:11434/api/tags; then break; fi; sleep 2; done
+      - name: Pull model
+        env:
+          MODEL: ${{ matrix.model }}
+        run: ollama pull "$MODEL"
+      - name: Functional repair tests
+        env:
+          MODEL: ${{ matrix.model }}
+        run: |
+          docker pull python:3.12-slim
+          python3 ci/repair.py --model "$MODEL" --out results
+      - name: Evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repair-${{ strategy.job-index }}
+          path: results/
+          retention-days: 7
