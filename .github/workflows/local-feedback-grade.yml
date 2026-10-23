@@ -1,0 +1,57 @@
+name: Grade feedback-revised patches
+on:
+  push:
+    branches: [experiment/local-feedback-grade-01]
+    paths: ['.github/workflows/local-feedback-grade.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  grade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wait for original revision run to complete
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run watch 40016401585 --repo oigorbrito/local --exit-status --interval 30
+      - name: Download original inference artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p original
+          gh run download 40016401585 --repo oigorbrito/local --name feedback-revision-qwen3b --dir original
+      - name: Build predictions from preserved patches
+        run: python3 ci/build_predictions.py original qwen2.5-coder-3b-feedback predictions.jsonl
+      - name: Install legacy-compatible official grader
+        run: |
+          python3 -m pip install 'swebench==4.1.0'
+          python3 -m swebench.harness.run_evaluation --help >/dev/null
+      - name: Evaluate against official SWE-bench Lite dev
+        run: |
+          python3 -m swebench.harness.run_evaluation \
+            --dataset_name princeton-nlp/SWE-bench_Lite \
+            --split dev \
+            --predictions_path predictions.jsonl \
+            --max_workers 1 \
+            --run_id feedback-${{ github.run_id }}
+      - name: Collect portable evidence
+        if: always()
+        run: |
+          mkdir -p portable-evidence
+          find . -type f \( -name '*.json' -o -name '*.jsonl' \) -path '*evaluation*' -print | while IFS= read -r file; do
+            dest="portable-evidence/$(printf '%s' "$file" | sha256sum | cut -c1-16).json"
+            cp "$file" "$dest"
+          done
+          if test -f predictions.jsonl; then cp predictions.jsonl portable-evidence/predictions.jsonl; fi
+          if test -f original/score.json; then cp original/score.json portable-evidence/inference-score.json; fi
+      - name: Publish evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feedback-official-grade
+          path: portable-evidence/
+          if-no-files-found: warn
+          retention-days: 14
