@@ -60,21 +60,25 @@ jobs:
               echo "BENCHMARK_RESULT_FILES=$count"
               if test "$count" -ne 1; then echo "ERROR: expected exactly one functional exercise result" >&2; exit 1; fi
               find tmp.benchmarks -name .aider.results.json -print -exec cat {} \\;
-              python - <<'PY'
-              import json
-              from pathlib import Path
-              files = sorted(Path("tmp.benchmarks").rglob(".aider.results.json"))
-              if len(files) != 1:
-                  raise SystemExit(f"INVALID_HARNESS: expected 1 exercise, found {len(files)}")
-              p = files[0]
-              record = json.loads(p.read_text())
-              summary = {"exercise": p.parent.name, "record_keys": sorted(record),
-                         "record": record}
-              Path("tmp.benchmarks/functional-control-summary.json").write_text(
-                  json.dumps(summary, indent=2, default=str) + "\\n")
-              print("FUNCTIONAL_EXERCISE_RECORD", json.dumps(summary, default=str))
-              PY
+
             '
+      - name: Validate per-exercise functional record
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          files = sorted(Path("upstream-aider/tmp.benchmarks").rglob(".aider.results.json"))
+          if len(files) != 1:
+              raise SystemExit(f"INVALID_HARNESS: expected one exercise result, found {len(files)}")
+          p = files[0]
+          record = json.loads(p.read_text())
+          if not isinstance(record, dict) or not record:
+              raise SystemExit("INVALID_HARNESS: empty or invalid exercise record")
+          summary = {"exercise": p.parent.name, "source": str(p), "record": record}
+          output = Path("evidence/functional-control-summary.json")
+          output.write_text(json.dumps(summary, indent=2, default=str) + "\\n")
+          print("FUNCTIONAL_EXERCISE_RECORD", json.dumps(summary, default=str))
+          PY
       - name: Preserve benchmark results and provenance
         if: always()
         uses: actions/upload-artifact@v4
