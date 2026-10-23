@@ -24,6 +24,9 @@ def call_tool(action, root, target):
         test=subprocess.run(["python3","-m","py_compile",str(target)],cwd=root,capture_output=True,text=True,timeout=30)
         if test.returncode:target.write_text(text,encoding="utf-8");raise ValueError("syntax invalid: "+test.stderr[-1200:])
         return "EDIT_APPLIED and PY_COMPILE_PASS"
+    if name=="test":
+        check=subprocess.run(["python3","-m","py_compile",str(target)],cwd=root,capture_output=True,text=True,timeout=30)
+        return "PY_COMPILE_PASS" if check.returncode==0 else "PY_COMPILE_FAIL: "+check.stderr[-1000:]
     if name=="finish":return "FINISHED"
     raise ValueError("unsupported tool")
 
@@ -44,12 +47,13 @@ def main():
                 system=("Fix a real issue in the checked out repository. You can use exactly four tool calls "
                         "or fewer. Output exactly a JSON object for one action each turn. Available actions: "
                         '{"tool":"search","term":"string"}, {"tool":"read","start":1}, '
-                        '{"tool":"edit","old":"exact text","new":"replacement"}, {"tool":"finish"}. '
+                        '{"tool":"edit","old":"exact text","new":"replacement"}, {"tool":"test"}, {"tool":"finish"}. '
                         "The read tool returns 120 lines from the selected file, search finds matching lines in that same file. "
                         "Edits apply only to that file and must preserve syntax. Return no Markdown. "
                         "Do not invent test results. Finish when done.\nIssue:\n"+ins["problem_statement"]+
                         "\nFile: "+relative+"\nInitial source preview:\n"+call_tool({"tool":"read","start":1},root,target))
-                for step in range(4):
+                investigated=False;tested=False;edited=False
+                for step in range(6):
                     raw,secs=infer(a.model,system)
                     calls+=1
                     entry={"step":step+1,"raw":raw,"seconds":secs}
@@ -57,7 +61,12 @@ def main():
                         cleaned=raw.strip()
                         if cleaned.startswith(chr(96)*3):cleaned="\n".join(cleaned.splitlines()[1:-1])
                         act=json.loads(cleaned)
+                        if act.get("tool")=="edit" and not investigated: raise ValueError("must search or read before edit")
+                        if act.get("tool")=="finish" and edited and not tested: raise ValueError("must run test after edit")
                         response=call_tool(act,root,target)
+                        if act.get("tool") in ("read","search"):investigated=True
+                        if act.get("tool")=="edit":edited=True;tested=False
+                        if act.get("tool")=="test":tested=True
                         entry["tool"]=act.get("tool")
                         entry["result"]=response
                         if act.get("tool")=="finish":
