@@ -2,6 +2,22 @@
 import argparse,json,pathlib,tempfile,subprocess,hashlib,re
 from swebench_real import CASES,data,infer,cmd,select_target
 
+def parse_action(raw):
+    """Accept one JSON object and reject additional object commands."""
+    payload=raw.strip()
+    fence=chr(96)*3
+    if payload.startswith(fence):
+        payload="\n".join(payload.splitlines()[1:-1]).strip()
+    try:
+        result,end=json.JSONDecoder().raw_decode(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid JSON action: "+str(exc)) from exc
+    if payload[end:].strip():
+        raise ValueError("multiple commands or trailing prose; emit one JSON object")
+    if not isinstance(result,dict) or result.get("tool") not in ("search","read","edit","test","finish"):
+        raise ValueError("unknown tool action")
+    return result
+
 def call_tool(action, root, target):
     name=action.get("tool")
     if name=="read":
@@ -60,7 +76,7 @@ def main():
                     try:
                         cleaned=raw.strip()
                         if cleaned.startswith(chr(96)*3):cleaned="\n".join(cleaned.splitlines()[1:-1])
-                        act=json.loads(cleaned)
+                        act=parse_action(raw)
                         if act.get("tool")=="edit" and not investigated: raise ValueError("must search or read before edit")
                         if act.get("tool")=="finish" and edited and not tested: raise ValueError("must run test after edit")
                         response=call_tool(act,root,target)
@@ -74,7 +90,7 @@ def main():
                     except Exception as exc:
                         entry["result"]="ERROR: "+repr(exc)
                     logs.append(entry)
-                    system+=("\nAssistant response:\n"+raw[-4500:]+"\nTool observation:\n"+entry["result"][-7000:]+
+                    system+=("\nPrevious tool name: "+str(entry.get("tool","invalid"))+"\nTool observation:\n"+entry["result"][-2500:]+
                              "\nChoose the next tool. Return ONLY JSON.")
                 patch=cmd(["git","diff","--",relative],cwd=root)
                 if patch.strip():(out/(iid+".patch")).write_bytes(patch.encode())
