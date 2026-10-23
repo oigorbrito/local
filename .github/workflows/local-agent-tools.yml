@@ -1,0 +1,40 @@
+name: Local tool-assisted real issues
+on:
+  push:
+    branches: [experiment/local-agent-tools-01]
+    paths:
+      - 'ci/agent_tools.py'
+      - '.github/workflows/local-agent-tools.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        model: ['qwen2.5-coder:3b', 'qwen2.5-coder:1.5b', 'deepseek-coder:1.3b']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start local runtime
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 40); do if curl -fsS http://localhost:11434/api/tags; then break; fi; sleep 2; done
+      - name: Pull local model
+        env:
+          MODEL: ${{ matrix.model }}
+        run: ollama pull "$MODEL"
+      - name: Tool-assisted issue editing
+        env:
+          MODEL: ${{ matrix.model }}
+        run: python3 ci/agent_tools.py --model "$MODEL" --out results
+      - name: Preserve evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: assisted-${{ strategy.job-index }}
+          path: results/
+          retention-days: 7
