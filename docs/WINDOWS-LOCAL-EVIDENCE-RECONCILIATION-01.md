@@ -46,3 +46,23 @@ Fonte secundária: handoff anterior do projeto LOCAL (arquivo de conversa `Texto
 - Targeted Edit V3: testes de contrato publicados como 12/12, porém **sem homologação real de inferência nas três issues**. Proibido registrar como resultado de resolução SWE-bench.
 
 **Decisão de reutilização:** Nemotron 4B, Qwen3.5 4B, LFM2.5 2.6B e Qwen2.5-Coder 3B já têm múltiplas baterias executadas. Qwen3.5 9B já mostrou gargalo relevante. Não repetir V1/V2/V3 nem SWE-bench sobre o mesmo método; auditar arquivos brutos e protocolo antes de desenhar qualquer nova tarefa. Não converter essas observações em ranking universal ou excluir modelos sem validação do runtime alvo.
+
+## Auditoria adicional (transcrição PowerShell encontrada)
+
+Foi recuperada a **transcrição textual de execução**, `Texto colado(1).txt`, contendo o JSON integral impresso por `Get-Content C:\\Users\\igorb\\Downloads\\results-controlled-v1\\scored-results.json -Raw`. Isso é evidência de saída do arquivo no terminal, mais forte que apenas um handoff, **mas não equivale a hash ou acesso atual ao arquivo local**.
+
+O JSON contém `schema: 1`, `summary`, `results`, `verdict`, `passed_tests`, `returncode`, `wall_seconds`, `generation_tok_s`, `eval_count` e `prompt_eval_count`, com advertência explícita: candidato executado em subprocesso **sem sandbox seguro**.
+
+| Modelo | Passou | Tempos de geração por tarefa (s) | Tokens/s observados nas tarefas |
+|---|---:|---|---|
+| qwen2.5-coder:3b | 2/3 | balanced 131.134; deduplicate 62.213; word_count 57.378 | 55.87; 55.44; 55.47 |
+| qwen3.5:4b | 3/3 | balanced 86.357; deduplicate 8.173; word_count 3.271 | 7.83; 8.31; 10.50 |
+| qwen3.5:2b | 3/3 | balanced 19.035; deduplicate 2.824; word_count 1.489 | 24.71; 23.09; 27.61 |
+
+As somas de `wall_seconds` são respectivamente 250.725 s, 97.801 s e 23.348 s, arredondando para 250.73/97.80/23.35 reportados. Os três modelos compartilharam as mesmas tarefas nomeadas neste ensaio. A execução do Qwen2.5-Coder 3B falhou **especificamente** em `balanced`: saída gerada com erro de sintaxe em literal de dicionário, pytest interrompido na coleta (returncode 2); passou deduplicate 5/5 e word_count 5/5.
+
+A **taxa de geração** da API para Qwen2.5-Coder 3B foi ~55 tokens/s apesar dos tempos de parede altos; não equiparar `wall_seconds` diretamente a throughput de tokens. O Qwen3.5 4B apresentou 7,83–10,50 tokens/s, e Qwen3.5 2B 23,09–27,61 tokens/s neste ensaio. Sem amostragem separada de VRAM/RAM, não declarar integral offload ou benchmark de hardware estabilizado.
+
+A transcrição não demonstra identidade de hash do arquivo `scored-results.json`, digest Ollama exato ou configurações térmicas. Os históricos V1–V3 ainda são handoffs secundários; não foram promovidos indevidamente ao mesmo nível documental. Não executar novamente as três tarefas.
+
+O handoff do `local-bench-04` documenta **resultado 0/3 de validade estrutural de patch por modelo por piloto**, truncamentos (LFM 3/3 e Nemotron 2/3 no PILOT02), auditoria de 18 artefatos com 12 diferenças CRLF/LF normalizáveis, zero divergências inexplicadas. Não confundir validade de patch com resolução oficial SWE-bench. A documentação local do runner Targeted Edit V3 não demonstra execução de inferência com resultado oficial.
