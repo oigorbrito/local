@@ -1,0 +1,63 @@
+name: Little-Coder upstream control gate
+on:
+  push:
+    branches: [experiment/local-restart-protocol-01]
+    paths: ['.github/workflows/local-little-coder-control.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 85
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ollama without cloud credentials
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:11434/api/tags >/dev/null
+          ollama pull nemotron-3-nano:4b
+      - name: Acquire original upstream Little-Coder and Exercism dataset
+        run: |
+          git clone --depth 1 https://github.com/itayinbarr/little-coder.git little-coder
+          git clone --depth 1 https://github.com/Aider-AI/polyglot-benchmark.git polyglot-benchmark
+          mkdir -p evidence "$HOME/Documents"
+          git -C little-coder rev-parse HEAD > evidence/little-coder-commit.txt
+          git -C polyglot-benchmark rev-parse HEAD > evidence/benchmark-commit.txt
+          ln -s "$GITHUB_WORKSPACE/polyglot-benchmark" "$HOME/Documents/polyglot-benchmark"
+      - name: Install upstream Pi dependency and Python tests
+        run: |
+          node --version | tee evidence/node-version.txt
+          cd little-coder
+          npm ci
+          python3 -m pip install pytest
+      - name: Verify upstream exercise exists and run control trial
+        run: |
+          test -d "$HOME/Documents/polyglot-benchmark/python/exercises/practice/affine-cipher"
+          cd little-coder
+          python3 benchmarks/aider_polyglot.py --model ollama/nemotron-3-nano:4b --language python --exercise affine-cipher --no-retry --verbose
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path("benchmarks/results_full_polyglot.json")
+          assert p.exists(), "No benchmark result: invalid execution"
+          record=json.loads(p.read_text())["exercises"]["python/affine-cipher"]
+          assert record["status"] in ("pass_1","fail"), record
+          assert record.get("elapsed_s",0)>0, record
+          print("CONTROL_FUNCTIONAL_RESULT",json.dumps(record,sort_keys=True))
+          PY
+      - name: Preserve provenance and raw result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: little-coder-control-nemotron4b
+          path: |
+            evidence/
+            little-coder/benchmarks/results_full_polyglot.json
+            little-coder/benchmarks/full_polyglot_logs/
+          if-no-files-found: warn
+          retention-days: 14
