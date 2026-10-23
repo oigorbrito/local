@@ -1,0 +1,38 @@
+name: Official-feedback patch revision
+on:
+  push:
+    branches: [experiment/local-feedback-repair-01]
+    paths:
+      - 'ci/official_feedback_revision.py'
+      - '.github/workflows/local-feedback-repair.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  revise:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download untouched prior patches and official failure classification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 40011543481 --repo oigorbrito/local --name assisted-0 --dir prior
+          gh run download 40015184698 --repo oigorbrito/local --name official-failure-analysis --dir official
+      - name: Start local model runtime
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve >/tmp/ollama.log 2>&1 &
+          for i in $(seq 1 40); do if curl -fsS http://localhost:11434/api/tags; then break; fi; sleep 2; done
+          ollama pull qwen2.5-coder:3b
+      - name: Generate one failure-informed revision per real issue
+        run: python3 ci/official_feedback_revision.py --model qwen2.5-coder:3b --report official/official-failure-analysis.json --patches prior --out results
+      - name: Retain original revision evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feedback-revision-qwen3b
+          path: results/
+          retention-days: 14
