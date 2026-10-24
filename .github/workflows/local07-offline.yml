@@ -1,7 +1,7 @@
 name: LOCAL-07 offline integration gate
 on:
   push:
-    branches: [main, review/local07-offline-integration]
+    branches: [main, experiment/local09-executor-contract]
     paths:
       - 'experiments/local07/**'
       - '.github/workflows/local07-offline.yml'
@@ -21,8 +21,8 @@ jobs:
       - name: Compile source and execute integrated contract suite
         run: |
           cd experiments/local07
-          python3 -m py_compile retrieve_context.py integrated_edit.py test_integrated_edit.py
-          python3 -m unittest -v test_integrated_edit
+          python3 -m py_compile retrieve_context.py integrated_edit.py executor_bridge.py ollama_adapter.py test_integrated_edit.py test_executor_bridge.py test_ollama_adapter.py
+          python3 -m unittest -v test_integrated_edit test_executor_bridge test_ollama_adapter
       - name: Record hashes for review
         run: |
           sha256sum experiments/local07/*.py
