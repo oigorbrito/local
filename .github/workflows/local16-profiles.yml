@@ -1,0 +1,47 @@
+name: LOCAL-16 profile contracts
+on:
+  pull_request:
+    paths:
+      - 'experiments/local07/model_profiles.py'
+      - 'experiments/local07/profile_cli.py'
+      - 'experiments/local07/inspect_profiles.py'
+      - 'experiments/local07/test_model_profiles.py'
+      - 'experiments/local07/test_profile_runtime.py'
+      - 'experiments/local07/ollama_adapter.py'
+      - 'experiments/local07/local16_acceptance.py'
+      - 'experiments/local07/test_local16_acceptance.py'
+      - 'experiments/local07/reviewed_patch.py'
+      - 'experiments/local07/test_reviewed_patch.py'
+      - 'experiments/local07/static_patch_gate.py'
+      - 'experiments/local07/fixture_functional_grade.py'
+      - 'experiments/local07/windows_runtime_smoke.py'
+      - 'docs/LOCAL-16-MODEL-PROFILES.md'
+      - '.github/workflows/local16-profiles.yml'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  profile-contracts:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and test
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q experiments/local07
+          cd experiments/local07
+          python profile_cli.py --list
+          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_reviewed_patch test_executor_bridge test_ollama_adapter test_integrated_edit
+      - name: Refuse unchecked inference policies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd experiments/local07
+          python -c "from model_profiles import PROFILES; assert all(p.version and len(p.fingerprint)==64 for p in PROFILES.values())"
