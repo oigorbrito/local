@@ -1,35 +1,101 @@
-"""Inspect native Ollama definitions without changing installed models."""
+"""Read-only, bounded Ollama native profile audit; never modifies any model."""
 import argparse
+import hashlib
 import http.client
 import json
 import pathlib
-from model_profiles import PROFILES
+import sys
 
-def inspect(name):
-    model = PROFILES[name].base_model
-    conn = http.client.HTTPConnection("127.0.0.1", 11434, timeout=20)
+from executor_bridge import ContractError
+from model_profiles import PROFILES, select_profile
+
+MAX_SHOW_BYTES = 1024 * 1024
+
+def digest(value):
+    if value is None:
+        return None
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+def inspect(name, *, host="127.0.0.1", port=11434, timeout=20):
+    profile = select_profile(name)
+    if host not in {"127.0.0.1", "localhost", "::1"} or type(port) is not int or not 1 <= port <= 65535:
+        raise ContractError("ONLY_LOOPBACK_OLLAMA_ALLOWED")
+    if type(timeout) is not int or not 1 <= timeout <= 60:
+        raise ContractError("INVALID_TIMEOUT")
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
-        conn.request("POST", "/api/show", body=json.dumps({"model": model}), headers={"Content-Type": "application/json"})
+        conn.request(
+            "POST", "/api/show", body=json.dumps({"model": profile.base_model}),
+            headers={"Content-Type": "application/json"}
+        )
         response = conn.getresponse()
         if response.status != 200:
-            raise RuntimeError("OLLAMA_SHOW_HTTP_" + str(response.status))
-        blob = response.read(1024 * 1024 + 1)
-        if len(blob) > 1024 * 1024:
-            raise ValueError("OLLAMA_SHOW_TOO_LARGE")
+            raise ContractError("OLLAMA_SHOW_HTTP_" + str(response.status))
+        length = response.getheader("Content-Length")
+        if length is not None:
+            try:
+                if int(length) > MAX_SHOW_BYTES:
+                    raise ContractError("OLLAMA_SHOW_TOO_LARGE")
+            except ValueError as exc:
+                raise ContractError("OLLAMA_SHOW_INVALID_LENGTH") from exc
+        blob = response.read(MAX_SHOW_BYTES + 1)
+        if len(blob) > MAX_SHOW_BYTES:
+            raise ContractError("OLLAMA_SHOW_TOO_LARGE")
     finally:
         conn.close()
-    data = json.loads(blob.decode("utf-8"))
-    return {"profile": name, "model": model, "modelfile": data.get("modelfile"),
-            "template": data.get("template"), "parameters": data.get("parameters"),
-            "model_info": data.get("model_info")}
+    try:
+        data = json.loads(blob.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("OLLAMA_SHOW_INVALID_JSON") from exc
+    if not isinstance(data, dict):
+        raise ContractError("OLLAMA_SHOW_INVALID_RESPONSE")
+    native = {}
+    for field in ("modelfile", "template", "parameters"):
+        value = data.get(field)
+        if value is not None and not isinstance(value, str):
+            raise ContractError("OLLAMA_SHOW_INVALID_" + field.upper())
+        native[field + "_sha256"] = digest(value)
+        native[field + "_present"] = bool(value)
+    if not native["modelfile_present"] and not native["template_present"]:
+        raise ContractError("OLLAMA_SHOW_NO_NATIVE_DEFINITION")
+    details = data.get("details")
+    if not isinstance(details, dict):
+        details = {}
+    capabilities = data.get("capabilities")
+    if not isinstance(capabilities, list) or any(not isinstance(x, str) for x in capabilities):
+        capabilities = []
+    return {
+        "inspection_schema": 1, "status": "INSPECTED_NOT_GRADED",
+        "profile": profile.name, "profile_version": profile.version,
+        "profile_fingerprint_sha256": profile.fingerprint,
+        "native_model": profile.base_model,
+        "native": native,
+        "details": {k: details.get(k) for k in
+                    ("family", "parameter_size", "quantization_level", "format")},
+        "declared_capabilities": sorted(set(capabilities))
+    }
 
 def main():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description="Read native Ollama metadata (no inference or mutation)")
+    p.add_argument("--profile", choices=tuple(PROFILES), default=None)
     p.add_argument("--output", required=True)
     args = p.parse_args()
-    result = {name: inspect(name) for name in PROFILES}
-    pathlib.Path(args.output).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"inspected": list(result), "output": args.output}))
+    results = {}
+    for name in ([args.profile] if args.profile else PROFILES):
+        try:
+            results[name] = inspect(name)
+        except (ContractError, OSError) as exc:
+            # Never include host body, native Modelfile or HTTP error payloads.
+            results[name] = {"profile": name, "status": "BLOCKED",
+                             "reason": str(exc) if isinstance(exc, ContractError) else "OLLAMA_UNREACHABLE"}
+    ok = all(item["status"] == "INSPECTED_NOT_GRADED" for item in results.values())
+    report = {"schema": 1, "complete": ok, "results": results}
+    pathlib.Path(args.output).write_text(
+        json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(json.dumps({"complete": ok, "profiles": list(results), "output": args.output}))
+    if not ok:
+        sys.exit(2)
 
 if __name__ == "__main__":
     main()
