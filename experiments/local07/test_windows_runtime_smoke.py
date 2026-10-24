@@ -28,7 +28,7 @@ class WindowsSmokeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             response = pathlib.Path(folder) / "saved.json"
             response.write_text(json.dumps({"schema": 1, "file": "calculator.py",
-                           "content": "def calculate_total(items):\\n    return sum(items) + 1\\n"}).replace("\\\\n","\\n"), encoding="utf-8")
+                           "content": "def calculate_total(items):\\n    return sum(items) + 1\\n"}), encoding="utf-8")
             report=smoke(pathlib.Path(folder)/"replay",response_json=response)
             self.assertEqual(report["inference_calls_attempted"],0)
             self.assertEqual(report["mode"],"OFFLINE_REPLAY")
