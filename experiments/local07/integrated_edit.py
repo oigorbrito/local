@@ -43,8 +43,15 @@ def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_
             itarget=isolated.joinpath(*name.parts)
             if itarget.is_symlink() or not itarget.resolve().is_relative_to(isolated.resolve()):
                 raise ValueError('ISOLATED_PATH_ESCAPE')
-            if hashlib.sha256(itarget.read_bytes()).hexdigest()!=original_sha:
-                raise ValueError('BASE_CONTENT_DRIFT')
+            # Git may materialize the same tracked blob with different LF/CRLF bytes
+            # across worktrees on Windows. Check tracked identity and clean index/worktree,
+            # not raw working-file equality.
+            if git(isolated,'rev-parse','HEAD').strip() != baseline:
+                raise ValueError('BASE_COMMIT_DRIFT')
+            if git(isolated,'rev-parse',f'HEAD:{replacement_path}').strip() != git(repo,'rev-parse',f'HEAD:{replacement_path}').strip():
+                raise ValueError('BASE_BLOB_DRIFT')
+            if git(isolated,'status','--porcelain').strip():
+                raise ValueError('ISOLATED_WORKTREE_DIRTY')
             itarget.write_bytes(candidate_source.encode('utf-8'))
             changed=git(isolated,'diff','--name-only').splitlines()
             if changed!=[replacement_path]: raise ValueError('DIFF_SCOPE_VIOLATION')
