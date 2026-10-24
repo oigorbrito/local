@@ -84,17 +84,6 @@ def grade(repo, issue, patch_file):
             result["status"]="PATCH_APPLICABLE_NOT_GRADED"
             return result
         finally:
-                # Kill/remove only our uniquely named container, even on timeout.
-                cleanup=cmd(["docker","rm","-f",container_name],timeout=30)
-                if cleanup.returncode not in (0, 1):
-                    raise GateError("CONTAINER_CLEANUP_UNVERIFIED")
-            result["test_status"]="PASS" if container.returncode==0 else "FAIL"
-            result["status"]="PUBLIC_TESTS_PASS" if container.returncode==0 else "PUBLIC_TESTS_FAIL"
-            result["test_exit_code"]=container.returncode
-            result["stdout_tail"]=container.stdout.decode("utf-8",errors="replace")[-1500:]
-            result["stderr_tail"]=container.stderr.decode("utf-8",errors="replace")[-1500:]
-            return result
-        finally:
             cmd(["git","worktree","remove","--force",str(checkout)],cwd=root)
 
 def main():
