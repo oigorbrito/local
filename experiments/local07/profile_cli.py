@@ -25,6 +25,38 @@ def distinct_output_paths(inputs, outputs):
     if len(normalized) != len(set(normalized)):
         raise ContractError("INPUT_OUTPUT_PATH_COLLISION")
 
+def guard_output_locations(repo, outputs):
+    """Never clobber saved evidence or write results into the source repository."""
+    root = pathlib.Path(repo).resolve()
+    for output in outputs:
+        if output is None:
+            continue
+        path = pathlib.Path(output)
+        resolved = path.resolve()
+        if resolved.is_relative_to(root):
+            raise ContractError("OUTPUT_INSIDE_SOURCE_REPOSITORY")
+        if path.is_symlink() or path.exists():
+            raise ContractError("OUTPUT_ALREADY_EXISTS")
+        if not resolved.parent.is_dir():
+            raise ContractError("OUTPUT_DIRECTORY_MISSING")
+
+
+def save_outputs(payloads):
+    """Create outputs exclusively; roll back this invocation's partial writes."""
+    created = []
+    try:
+        for path, body in payloads:
+            destination = pathlib.Path(path)
+            with destination.open("xb") as stream:
+                created.append(destination)
+                stream.write(body)
+                stream.flush()
+    except BaseException:
+        for destination in created:
+            destination.unlink(missing_ok=True)
+        raise
+
+
 def run(repo, issue_json, profile_name, report_path, patch_path, *,
         timeout=180, offline_response_json=None, response_json_path=None):
     if type(timeout) is not int or not 1 <= timeout <= 420:
@@ -34,6 +66,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         [issue_json, offline_response_json],
         [report_path, patch_path, response_json_path]
     )
+    guard_output_locations(repo, [report_path, patch_path, response_json_path])
     before = provenance(repo)
     issue = json.loads(pathlib.Path(issue_json).read_text(encoding="utf-8"))["problem_statement"]
     request = prepare(repo, issue)
@@ -55,13 +88,13 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         "selected_profile": profile.manifest(),
         "system_policy_sha256": profile.fingerprint
     }
-    pathlib.Path(patch_path).write_text(patch, encoding="utf-8", newline="\n")
-    pathlib.Path(report_path).write_text(
-        json.dumps(validation, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8"
-    )
+    artifacts = [
+        (patch_path, patch.encode("utf-8")),
+        (report_path, (json.dumps(validation, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    ]
     if response_json_path is not None:
-        pathlib.Path(response_json_path).write_bytes(payload)
+        artifacts.append((response_json_path, payload))
+    save_outputs(artifacts)
     return validation
 
 def main():
