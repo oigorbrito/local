@@ -1,0 +1,22 @@
+name: LOCAL-14 static-only triage
+on:
+  push:
+    branches: [feat/local14-static-triage-only]
+  pull_request:
+    paths:
+      - 'experiments/local07/static_patch_gate.py'
+      - 'experiments/local07/test_static_patch_gate.py'
+      - '.github/workflows/local14-static.yml'
+permissions:
+  contents: read
+jobs:
+  static-triage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify static gate and contracts
+        run: |
+          cd experiments/local07
+          python3 -m compileall -q static_patch_gate.py test_static_patch_gate.py
+          python3 -m unittest -v test_static_patch_gate
