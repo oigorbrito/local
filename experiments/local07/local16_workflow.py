@@ -52,6 +52,7 @@ def location(session):
 
 def tracked_sources(repo, selected):
     """Bind retrieved context to tracked Git source and current file bytes."""
+    repo = pathlib.Path(repo).resolve()
     result = {}
     for name in selected:
         p = pathlib.PurePosixPath(name)
