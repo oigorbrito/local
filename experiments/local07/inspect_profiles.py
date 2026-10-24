@@ -22,7 +22,7 @@ def digest(value):
 
 def inspect(name, *, host="127.0.0.1", port=11434, timeout=20):
     profile = select_profile(name)
-    if host not in {"127.0.0.1", "localhost", "::1"} or type(port) is not int or not 1 <= port <= 65535:
+    if host != "127.0.0.1" or type(port) is not int or not 1 <= port <= 65535:
         raise ContractError("ONLY_LOOPBACK_OLLAMA_ALLOWED")
     if type(timeout) is not int or not 1 <= timeout <= 60:
         raise ContractError("INVALID_TIMEOUT")
