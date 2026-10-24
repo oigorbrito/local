@@ -55,6 +55,7 @@ def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180):
             command = [sys.executable, str(HERE / "ollama_adapter.py"),
                        "--repo", str(root), "--issue-json", str(issue_path),
                        "--model", model, "--timeout", str(timeout),
+                       "--response-json-path", str(output_dir / "model-response.json"),
                        "--report", str(output_dir / "adapter-report.json"),
                        "--patch", str(output_dir / "candidate.patch")]
             report["inference_calls_attempted"] = 1
