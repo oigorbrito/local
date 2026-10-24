@@ -87,9 +87,12 @@ class RealPatchGateTests(unittest.TestCase):
             result=grade(self.root,self.spec,self.patch,image=digest,
                          test_command="python -m pytest -q",run_tests=True)
         self.assertEqual(result["status"],"PUBLIC_TESTS_PASS")
-        self.assertEqual(len(calls),2)
+        self.assertEqual(len(calls),3)
         run=calls[1]
         self.assertEqual(run[:3],["docker","run","--rm"])
+        self.assertEqual(calls[2][:3],["docker","rm","-f"])
+        self.assertEqual(calls[2][3],run[run.index("--name")+1])
+        self.assertEqual(run[run.index("--pull")+1],"never")
         for item in ["--network","none","--read-only","--cap-drop","ALL",
                      "--security-opt","no-new-privileges","--pids-limit","128",
                      "--memory","2g","--cpus","2","--user","65534:65534"]:
