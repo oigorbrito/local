@@ -1,0 +1,28 @@
+name: LOCAL-07 offline integration gate
+on:
+  push:
+    branches: [main, review/local07-offline-integration]
+    paths:
+      - 'experiments/local07/**'
+      - '.github/workflows/local07-offline.yml'
+  pull_request:
+    paths:
+      - 'experiments/local07/**'
+      - '.github/workflows/local07-offline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile source and execute integrated contract suite
+        run: |
+          cd experiments/local07
+          python3 -m py_compile retrieve_context.py integrated_edit.py test_integrated_edit.py
+          python3 -m unittest -v test_integrated_edit
+      - name: Record hashes for review
+        run: |
+          sha256sum experiments/local07/*.py
