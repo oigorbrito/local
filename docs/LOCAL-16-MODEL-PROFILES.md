@@ -57,6 +57,61 @@ python experiments/local07/profile_cli.py --profile principal --repo D:\caminho\
 Em replay, `model_invoked=false`; selecionar perfil **não** atribui a resposta
 salva àquele modelo. Isso evita atribuição falsa de origem.
 
+## Gate único de aceitação operacional (LOCAL-16)
+
+O comando de auditoria é read-only e consulta os três modelos sem inferência:
+
+```powershell
+python experiments/local07/local16_acceptance.py --mode audit --output-dir D:\\projetos\\local16-audit
+```
+
+A execução **explícita** do executor principal para uma única fixture
+descartável, com inspeção nativa antes/depois, contrato completo e oráculo
+sem executar código gerado:
+
+```powershell
+python experiments/local07/local16_acceptance.py --mode live --profile principal --output-dir D:\\projetos\\local16-primary-acceptance
+```
+
+Esse segundo comando autoriza **uma tentativa de geração**, não um benchmark
+repetitivo. A integração nunca altera o repositório de trabalho: inicializa um
+Git descartável e usa a mesma fixture de `LOCAL-11` e o oráculo AST de
+`LOCAL-12` (4 casos). Pode-se escolher `alternativo` ou `economico` em
+uma execução deliberadamente separada; nenhum fallback/loop automático.
+
+O mesmo gate pode ser reproduzido **sem Ollama** com resposta salva:
+
+```powershell
+python experiments/local07/local16_acceptance.py --mode replay --profile principal --response-json D:\\projetos\\local16-primary-acceptance\\model-response.json --output-dir D:\\projetos\\local16-replay
+```
+
+`--output-dir` precisa usar destino novo (a rotina não sobrescreve evidência).
+O arquivo `local16-acceptance.json` tem estágio de inspeção, quantas chamadas
+foram tentadas, integridade do checkout, SHA do candidato, estado do oráculo
+e status global. `PASS_LIVE_FIXTURE` significa **somente** que 4 casos da
+fixture restrita foram interpretados corretamente, que o patch é aplicável e
+que não houve drift detectado nas definições do modelo instalado.
+
+A auditoria lê `GET /api/tags` para registrar o digest SHA-256 **informado
+pelo Ollama para o modelo instalado** e `POST /api/show` para hashes da
+definição, parâmetros e template. O modo live repete a inspeção depois da
+geração e bloqueia `NATIVE_MODEL_DRIFT` ou `POST_INSPECTION_BLOCKED`.
+Não equivale à verificação criptográfica independente dos arquivos GGUF.
+Os endpoints usados são somente de leitura, sem pulls ou criação de modelos.
+A saída não armazena Modelfiles, template bruto nem paths de blobs locais.
+
+Status finais: `AUDIT_PASS`, `AUDIT_INCOMPLETE`,
+`PASS_LIVE_FIXTURE`, `PASS_REPLAY_FIXTURE`, `FIXTURE_NOT_SOLVED`,
+`EXECUTOR_FAILED`, `BLOCKED_NATIVE_INSPECTION`,
+`NATIVE_MODEL_DRIFT`, `POST_INSPECTION_BLOCKED`,
+`SOURCE_INTEGRITY_FAILURE`, `INFRA_FAILURE`.
+Somente as três condições de passagem retornam exit code 0.
+
+Este gate não afirma taxa geral de sucesso, segurança de executar patches
+em ambiente host ou resolução oficial de benchmarks. Os metadados da
+instalação do usuário continuam `NOT_OBSERVED` enquanto o gate real não
+for executado naquele Windows.
+
 ## Invariantes verificáveis
 
 1. O checkout fonte precisa ser um repositório Git limpo. HEAD e limpeza
@@ -79,11 +134,17 @@ salva àquele modelo. Isso evita atribuição falsa de origem.
 
 - `test_model_profiles.py` — seleção.
 - `test_profile_runtime.py` — versão e fingerprint, políticas enviadas pelo
-  adaptador, restrições de transporte, auditoria sanitizada, respostas inválidas,
-  replay funcional em repositório Git real e ausência de mutações.
+  adaptador, restrições de transporte, digest do modelo instalado, auditoria
+  sanitizada, respostas inválidas, replay funcional em repositório Git real e
+  ausência de mutações.
+- `test_local16_acceptance.py` — oráculo de semântica funcional limitado à
+  fixture, auditoria dos três modelos, geração mockada limitada a uma tentativa,
+  replay offline, detecção de drift de digest/template, ausência de alteração
+  no checkout e prevenção de sobrescrita de evidências.
 - Regressões reutilizadas de LOCAL-07/09.
-- `.github/workflows/local16-profiles.yml` — compilação e testes offline,
-  incluindo aplicação reversível do patch (sem executar sua fonte).
+- `.github/workflows/local16-profiles.yml` — compilação e testes offline
+  agrupados em Linux e Windows, incluindo validação de patches sem executar
+  sua fonte, CLI de aceitação e oráculo AST.
 - Não há teste de inferência real no runner GitHub; depende do Windows com
   Ollama local. A inspeção nativa **não** pode ser atestada remotamente.
 - Não fazer merge automático. O gate da PR permanece draft até revisão manual.
