@@ -6,6 +6,7 @@ worktree patch gate remains the sole patch validator.
 import argparse
 import json
 import pathlib
+import hashlib
 
 from executor_bridge import MAX_RESPONSE_BYTES, ContractError, prepare, replay
 from integrated_edit import git
@@ -86,7 +87,8 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     validation["execution"] = {
         "mode": mode, "model_invoked": mode == "local_inference",
         "selected_profile": profile.manifest(),
-        "system_policy_sha256": profile.fingerprint
+        "system_policy_sha256": profile.fingerprint,
+        "response_sha256": hashlib.sha256(payload).hexdigest()
     }
     artifacts = [
         (patch_path, patch.encode("utf-8")),
