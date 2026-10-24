@@ -112,6 +112,65 @@ em ambiente host ou resolução oficial de benchmarks. Os metadados da
 instalação do usuário continuam `NOT_OBSERVED` enquanto o gate real não
 for executado naquele Windows.
 
+## Sessões persistentes para tarefas reais (LOCAL-16)
+
+O fluxo de uma tarefa não exige mais criar manualmente o JSON da issue. Uma
+sessão criada fora do checkout congela a tarefa, os trechos de contexto
+recuperados, o commit-base, os hashes das fontes Git e a versão do perfil
+**sem executar modelo algum**. O comando de geração permanece opt-in e
+nunca aplica alterações.
+
+Exemplo PowerShell, desde a raiz do repositório local:
+
+~~~powershell
+python experiments/local07/local16_workflow.py new --repo D:\codigo\meu-projeto --session D:\evidencias\tarefa-001 --profile principal --task "Corrija calculate() em calculator.py para retornar x + 2."
+python experiments/local07/local16_workflow.py status --session D:\evidencias\tarefa-001
+~~~
+
+Verifique o conteúdo de request.json na pasta da sessão: é a seleção
+determinística de contexto LOCAL-09 (no máximo 2 arquivos). O executor só
+pode editar um deles. A sessão rejeita arquivos selecionados que não sejam
+rastreados pelo Git e qualquer mudança de commit, contexto, fonte ou
+fingerprint do perfil antes de gerar/aprovar a edição.
+
+Para gerar **uma** resposta do Ollama local, se desejado:
+
+~~~powershell
+python experiments/local07/local16_workflow.py generate --session D:\evidencias\tarefa-001
+~~~
+
+Para avaliar offline uma resposta JSON preservada, sem inferência:
+
+~~~powershell
+python experiments/local07/local16_workflow.py generate --session D:\evidencias\tarefa-001 --offline-response-json D:\evidencias\resposta-anterior.json
+~~~
+
+São modos mutuamente alternativos dentro da sessão. A geração bem-sucedida
+grava response.json, report.json e candidate.patch. Reexecutar
+generate na mesma sessão é proibido, para preservar as evidências.
+Falhas de validação não aplicam nenhuma edição; não há fallback automático.
+
+Após leitura humana do patch:
+
+~~~powershell
+python experiments/local07/local16_workflow.py check --session D:\evidencias\tarefa-001
+python experiments/local07/local16_workflow.py apply --session D:\evidencias\tarefa-001 --approve-sha256 COLE_O_SHA256_EXATO_DEVOLVIDO_PELO_CHECK
+~~~
+
+O comando check exige correspondência entre solicitação imutável,
+manifesto de perfil, bytes da resposta, hash SHA-256 do patch, commit-base e
+o gate estático LOCAL-14. O comando apply faz a mesma verificação e exige
+autorização humana por hash integral; a alteração resultante fica **unstaged**,
+sem comandos ou testes do candidato, e sem commit/merge. Após aplicação,
+status informa que a fonte ou o patch precisam ser inspecionados: uma
+sessão não pode aplicar duas vezes no mesmo checkout.
+
+A pasta da sessão é uma evidência **local, não assinada**: SHA-256 protege
+contra alterações acidentais, mas não autentica um operador hostil com
+permissão de modificar simultaneamente todos os arquivos da sessão.
+session.json e request.json podem incluir trechos de código privados;
+mantenha-os fora de repositórios públicos.
+
 ## Aplicação supervisionada do patch (sem executar código)
 
 O `profile_cli.py` **nunca escreve artefatos dentro do checkout fonte**,
