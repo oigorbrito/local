@@ -153,9 +153,13 @@ com drift: um patch gerado não é promovido à aplicação se a identidade do
 modelo não for consistente. No modo de reprodução offline, a sessão não
 atribui a resposta a um modelo e não exige inspeção nativa.
 
-São modos mutuamente alternativos dentro da sessão. A geração bem-sucedida
-grava response.json, report.json e candidate.patch. Reexecutar
-generate na mesma sessão é proibido, para preservar as evidências.
+São modos mutuamente alternativos dentro da sessão. Antes da inferência, o
+programa reserva **generation-attempt.json com criação exclusiva**, inclusive
+contra dois processos que tentem iniciar a mesma sessão em paralelo. Após uma
+tentativa iniciada, mesmo que o modelo falhe ou exceda o timeout, a sessão
+não autoriza outra tentativa: o operador cria uma nova sessão (não há retry
+automático). A geração bem-sucedida grava response.json, report.json e
+candidate.patch. check/apply também validam o registro da tentativa.
 Falhas de validação não aplicam nenhuma edição; não há fallback automático.
 
 Após leitura humana do patch:
