@@ -48,3 +48,13 @@ class IntegrationGate(unittest.TestCase):
         finally:
             link.unlink(missing_ok=True)
             outside.unlink(missing_ok=True)
+
+    def test_git_blob_identity_allows_checkout_line_endings(self):
+        # Simulate a Git-clean Windows checkout with CRLF materialization.
+        git(self.root,'config','core.autocrlf','true')
+        (self.root/'target.py').write_bytes(b'def calculator(x):\r\n    return x+1\r\n')
+        self.assertEqual(git(self.root,'status','--porcelain'), '')
+        report, patch=assess(self.root,self.issue,'target.py','def calculator(x):\n    return x+2\n')
+        self.assertEqual(report['result'],'PATCH_APPLICABLE_NOT_GRADED')
+        self.assertIn('+    return x+2',patch)
+        self.assertEqual(git(self.root,'status','--porcelain'), '')
