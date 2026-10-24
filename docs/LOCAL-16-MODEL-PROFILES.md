@@ -62,7 +62,7 @@ salva àquele modelo. Isso evita atribuição falsa de origem.
 O comando de auditoria é read-only e consulta os três modelos sem inferência:
 
 ```powershell
-python experiments/local07/local16_acceptance.py --mode audit --output-dir D:\\projetos\\local16-audit
+python experiments/local07/local16_acceptance.py --mode audit --output-dir D:\projetos\local16-audit
 ```
 
 A execução **explícita** do executor principal para uma única fixture
@@ -70,7 +70,7 @@ descartável, com inspeção nativa antes/depois, contrato completo e oráculo
 sem executar código gerado:
 
 ```powershell
-python experiments/local07/local16_acceptance.py --mode live --profile principal --output-dir D:\\projetos\\local16-primary-acceptance
+python experiments/local07/local16_acceptance.py --mode live --profile principal --output-dir D:\projetos\local16-primary-acceptance
 ```
 
 Esse segundo comando autoriza **uma tentativa de geração**, não um benchmark
@@ -82,7 +82,7 @@ uma execução deliberadamente separada; nenhum fallback/loop automático.
 O mesmo gate pode ser reproduzido **sem Ollama** com resposta salva:
 
 ```powershell
-python experiments/local07/local16_acceptance.py --mode replay --profile principal --response-json D:\\projetos\\local16-primary-acceptance\\model-response.json --output-dir D:\\projetos\\local16-replay
+python experiments/local07/local16_acceptance.py --mode replay --profile principal --response-json D:\projetos\local16-primary-acceptance\model-response.json --output-dir D:\projetos\local16-replay
 ```
 
 `--output-dir` precisa usar destino novo (a rotina não sobrescreve evidência).
