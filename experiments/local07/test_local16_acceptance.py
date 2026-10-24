@@ -24,6 +24,7 @@ def fake_native(name):
         "profile": name, "status": "INSPECTED_NOT_GRADED",
         "profile_fingerprint_sha256": PROFILES[name].fingerprint,
         "native_model": PROFILES[name].base_model,
+        "native_model_digest_sha256": "f" * 64,
         "native": {"modelfile_sha256": "a" * 64}
     }
 
@@ -106,7 +107,36 @@ class AcceptanceGate(unittest.TestCase):
         self.assertEqual(result["fixture_cases_passed"], 4)
         self.assertTrue(result["source_unchanged"])
         self.assertEqual(result["official_resolution"], "NOT_EVALUATED")
+        self.assertTrue(result["native_post_generation_verified"])
         self.assertTrue((self.output / "model-response.json").is_file())
+
+    def test_changed_native_model_digest_blocks_success_claim(self):
+        reads = []
+        def drift(name):
+            data = fake_native(name)
+            reads.append(name)
+            if len(reads) == 2:
+                data["native_model_digest_sha256"] = "0" * 64
+            return data
+        with patch("profile_cli.generate", return_value=GOOD):
+            result = acceptance(self.output, mode="live", auditor=drift)
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(result["status"], "NATIVE_MODEL_DRIFT")
+        self.assertEqual(result["native_inspection"], "DRIFT")
+        self.assertEqual(result["fixture_semantics"], "FIXTURE_PASS")
+        self.assertFalse(result["generated_code_executed"])
+
+    def test_changed_template_hash_blocks_success_claim(self):
+        reads = []
+        def drift(name):
+            data = fake_native(name)
+            reads.append(name)
+            if len(reads) == 2:
+                data["native"]["modelfile_sha256"] = "b" * 64
+            return data
+        with patch("profile_cli.generate", return_value=GOOD):
+            result = acceptance(self.output, mode="live", auditor=drift)
+        self.assertEqual(result["status"], "NATIVE_MODEL_DRIFT")
 
     def test_live_native_audit_blocks_without_inference(self):
         def reject(_):
