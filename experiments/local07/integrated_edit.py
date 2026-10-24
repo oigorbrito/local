@@ -19,6 +19,17 @@ def git(repo, *args, input=None):
     return r.stdout
 
 
+def check_patch_index(repo, patch):
+    """Feed UTF-8 patch bytes verbatim: text=True rewrites LF to CRLF on Windows."""
+    data = patch.encode('utf-8')
+    proc = subprocess.run(
+        ['git', 'apply', '--cached', '--check', '-'],
+        cwd=repo, input=data, capture_output=True, timeout=45
+    )
+    if proc.returncode:
+        raise RuntimeError('GIT_APPLY_CHECK_FAILED: ' + proc.stderr.decode('utf-8', errors='replace')[:300])
+
+
 def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_files=2):
     repo=pathlib.Path(repo).resolve()
     if not (repo/'.git').exists(): raise ValueError('REQUIRES_GIT_CHECKOUT')
@@ -43,15 +54,22 @@ def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_
             itarget=isolated.joinpath(*name.parts)
             if itarget.is_symlink() or not itarget.resolve().is_relative_to(isolated.resolve()):
                 raise ValueError('ISOLATED_PATH_ESCAPE')
-            if hashlib.sha256(itarget.read_bytes()).hexdigest()!=original_sha:
-                raise ValueError('BASE_CONTENT_DRIFT')
+            # Git may materialize the same tracked blob with different LF/CRLF bytes
+            # across worktrees on Windows. Check tracked identity and clean index/worktree,
+            # not raw working-file equality.
+            if git(isolated,'rev-parse','HEAD').strip() != baseline:
+                raise ValueError('BASE_COMMIT_DRIFT')
+            if git(isolated,'rev-parse',f'HEAD:{replacement_path}').strip() != git(repo,'rev-parse',f'HEAD:{replacement_path}').strip():
+                raise ValueError('BASE_BLOB_DRIFT')
+            if git(isolated,'status','--porcelain').strip():
+                raise ValueError('ISOLATED_WORKTREE_DIRTY')
             itarget.write_bytes(candidate_source.encode('utf-8'))
             changed=git(isolated,'diff','--name-only').splitlines()
             if changed!=[replacement_path]: raise ValueError('DIFF_SCOPE_VIOLATION')
             git(isolated,'diff','--check')
             patch=git(isolated,'diff','--binary','--',replacement_path)
             if not patch: raise ValueError('NO_CHANGE')
-            git(repo,'apply','--check','-',input=patch)
+            check_patch_index(repo, patch)
             report={'result':'PATCH_APPLICABLE_NOT_GRADED','commit':baseline,'selected_files':allowed,
                     'edited_file':replacement_path,'context_chars':outcome['context_chars'],
                     'source_sha256':original_sha,'patch_sha256':hashlib.sha256(patch.encode()).hexdigest(),

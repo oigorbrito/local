@@ -62,12 +62,15 @@ def main():
     for name in ("repo", "issue-json", "model", "report", "patch"):
         p.add_argument("--" + name, required=True)
     p.add_argument("--timeout", type=int, default=180)
+    p.add_argument("--response-json-path", default=None, help="Save successful model JSON before patch validation")
     a = p.parse_args()
     if not 1 <= a.timeout <= 420:
         raise ContractError("INVALID_TIMEOUT")
     issue = json.loads(pathlib.Path(a.issue_json).read_text(encoding="utf-8"))["problem_statement"]
     request = prepare(a.repo, issue)
     payload = generate(request, a.model, timeout=a.timeout)
+    if a.response_json_path:
+        pathlib.Path(a.response_json_path).write_bytes(payload)
     report, patch = replay(a.repo, issue, payload)
     pathlib.Path(a.report).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     pathlib.Path(a.patch).write_text(patch, encoding="utf-8", newline="\n")
