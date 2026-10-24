@@ -24,6 +24,7 @@ REPORT = "report.json"
 PATCH = "candidate.patch"
 RESPONSE = "response.json"
 NATIVE = "native-identity.json"
+ATTEMPT = "generation-attempt.json"
 MAX_MANIFEST = 1024 * 1024
 REASON = re.compile(r"^[A-Z][A-Z0-9_]{0,95}$")
 
@@ -187,7 +188,7 @@ def native_report(path, manifest, before, after):
 def generate(session, *, offline_response_json=None, timeout=180, inspector=inspect_native):
     path, root, manifest, _, _ = load(session)
     if any((path / key).exists() or (path / key).is_symlink()
-           for key in (REPORT, PATCH, RESPONSE, NATIVE)):
+           for key in (REPORT, PATCH, RESPONSE, NATIVE, ATTEMPT)):
         raise ContractError("SESSION_ALREADY_GENERATED")
     response_path = None if offline_response_json is None else pathlib.Path(offline_response_json).resolve()
     if response_path is not None and response_path.is_relative_to(root):
@@ -200,6 +201,14 @@ def generate(session, *, offline_response_json=None, timeout=180, inspector=insp
             raise ContractError("NATIVE_INSPECTION_BLOCKED") from exc
         if not native_valid(before, manifest):
             raise ContractError("NATIVE_INSPECTION_BLOCKED")
+    # Exclusive durable attempt record is also the cross-process single-call gate.
+    # If generation fails, it remains: a new session is required to retry.
+    mode = "local_inference" if response_path is None else "offline_replay"
+    save_outputs([(path / ATTEMPT, canonical({
+        "schema": 1, "profile": manifest["profile"],
+        "request_sha256": manifest["request_sha256"],
+        "mode": mode, "model_call_authorized": response_path is None
+    }))])
     outcome = generate_patch(
         root, path / ISSUE, manifest["profile"]["name"],
         path / REPORT, path / PATCH, timeout=timeout,
@@ -242,6 +251,18 @@ def check(session):
             or execution.get("mode") not in {"offline_replay", "local_inference"}
             or execution.get("model_invoked") is not (execution["mode"] == "local_inference")):
         raise ContractError("SESSION_EXECUTION_MISMATCH")
+    if not (path / ATTEMPT).is_file():
+        raise ContractError("SESSION_ATTEMPT_RECORD_MISSING")
+    try:
+        attempt = json.loads(read_bounded(path / ATTEMPT))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("SESSION_ATTEMPT_RECORD_INVALID") from exc
+    if (not isinstance(attempt, dict) or attempt.get("schema") != 1
+            or attempt.get("profile") != manifest["profile"]
+            or attempt.get("request_sha256") != manifest["request_sha256"]
+            or attempt.get("mode") != execution["mode"]
+            or attempt.get("model_call_authorized") is not (execution["mode"] == "local_inference")):
+        raise ContractError("SESSION_ATTEMPT_RECORD_MISMATCH")
     if sha(read_bounded(path / RESPONSE, 256 * 1024)) != execution.get("response_sha256"):
         raise ContractError("SESSION_RESPONSE_MISMATCH")
     if execution["mode"] == "local_inference":
@@ -281,7 +302,8 @@ def status(session):
             status_value = "SOURCE_OR_PATCH_REQUIRES_INSPECTION"
             digest = None
     else:
-        status_value = "SESSION_PREPARED"
+        status_value = ("GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION"
+                        if (path / ATTEMPT).exists() else "SESSION_PREPARED")
         digest = None
     return {"status": status_value, "session": str(path),
             "profile": manifest["profile"], "patch_sha256": digest,
