@@ -27,9 +27,13 @@ def run_git(root, *args):
     return proc.stdout.strip()
 
 
-def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180):
+def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180, response_json=None):
     if model != "nemotron-3-nano:4b":
         raise ValueError("LOCAL11_PINNED_MODEL_ONLY")
+    if response_json is not None:
+        response_json = pathlib.Path(response_json).resolve()
+        if not response_json.is_file():
+            raise ValueError("REPLAY_RESPONSE_MISSING")
     output_dir = pathlib.Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     report = {"schema": 1, "gate": "LOCAL-11", "status": "STARTED",
@@ -58,7 +62,17 @@ def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180):
                        "--response-json-path", str(output_dir / "model-response.json"),
                        "--report", str(output_dir / "adapter-report.json"),
                        "--patch", str(output_dir / "candidate.patch")]
-            report["inference_calls_attempted"] = 1
+            if response_json is not None:
+                command = [sys.executable, str(HERE / "executor_bridge.py"),
+                           "--repo", str(root), "--issue-json", str(issue_path),
+                           "--response-json", str(response_json),
+                           "--report", str(output_dir / "adapter-report.json"),
+                           "--patch", str(output_dir / "candidate.patch")]
+                report["mode"] = "OFFLINE_REPLAY"
+                report["response_sha256"] = hashlib.sha256(response_json.read_bytes()).hexdigest()
+            else:
+                report["mode"] = "LIVE_OLLAMA"
+                report["inference_calls_attempted"] = 1
             start = time.perf_counter()
             try:
                 proc = subprocess.run(command, capture_output=True, text=True, timeout=timeout+30)
@@ -95,10 +109,11 @@ def main():
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--model",default="nemotron-3-nano:4b")
     parser.add_argument("--timeout", type=int, default=180)
+    parser.add_argument("--response-json", default=None, help="Replay previously saved model JSON, without Ollama")
     args=parser.parse_args()
     if not 1 <= args.timeout <= 420:
         parser.error("timeout must be 1..420")
-    result=smoke(args.output_dir,args.model,args.timeout)
+    result=smoke(args.output_dir,args.model,args.timeout,args.response_json)
     print(json.dumps({"status":result["status"], "report":str(pathlib.Path(args.output_dir)/"local11-report.json")}))
     return 0 if result["status"]=="PATCH_APPLICABLE_NOT_GRADED" else 1
 
