@@ -80,7 +80,8 @@ def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180, response_json=Non
                 report["adapter_exit_code"] = proc.returncode
                 if proc.returncode == 0:
                     report.update(status="PATCH_APPLICABLE_NOT_GRADED",
-                                  transport="PASS",response_contract="PASS",patch_validation="PASS")
+                                  transport="PASS" if response_json is None else "NOT_EVALUATED",
+                                  response_contract="PASS",patch_validation="PASS")
                     patch_bytes=(output_dir/"candidate.patch").read_bytes()
                     report["patch_sha256"] = hashlib.sha256(patch_bytes).hexdigest()
                     report["patch_bytes"] = len(patch_bytes)
