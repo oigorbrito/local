@@ -12,6 +12,7 @@ import sys
 
 from executor_bridge import ContractError, MAX_ISSUE_CHARS, prepare
 from integrated_edit import git
+from inspect_profiles import inspect as inspect_native
 from model_profiles import PROFILES, select_profile
 from profile_cli import provenance, run as generate_patch, save_outputs
 from reviewed_patch import verify as review_patch, apply_reviewed
@@ -22,6 +23,7 @@ REQUEST = "request.json"
 REPORT = "report.json"
 PATCH = "candidate.patch"
 RESPONSE = "response.json"
+NATIVE = "native-identity.json"
 MAX_MANIFEST = 1024 * 1024
 REASON = re.compile(r"^[A-Z][A-Z0-9_]{0,95}$")
 
@@ -159,23 +161,66 @@ def load(session, *, check_sources=True):
     return path, root, manifest, issue, saved_request
 
 
-def generate(session, *, offline_response_json=None, timeout=180):
+def native_valid(record, manifest):
+    """Ensure show/tags evidence agrees with selected native model and policy."""
+    return (
+        isinstance(record, dict)
+        and record.get("status") == "INSPECTED_NOT_GRADED"
+        and record.get("profile") == manifest["profile"]["name"]
+        and record.get("native_model") == manifest["profile"]["base_model"]
+        and record.get("profile_fingerprint_sha256") == manifest["profile"]["fingerprint_sha256"]
+        and isinstance(record.get("native"), dict)
+        and isinstance(record.get("native_model_digest_sha256"), str)
+        and bool(re.fullmatch(r"[0-9a-f]{64}", record["native_model_digest_sha256"]))
+    )
+
+
+def native_report(path, manifest, before, after):
+    verified = native_valid(after, manifest) and before == after
+    record = {"schema": 1, "status": "VERIFIED" if verified else "DRIFT_OR_INCOMPLETE",
+              "profile": manifest["profile"], "before": before, "after": after}
+    save_outputs([(path / NATIVE, canonical(record))])
+    if not verified:
+        raise ContractError("NATIVE_MODEL_IDENTITY_DRIFT")
+
+
+def generate(session, *, offline_response_json=None, timeout=180, inspector=inspect_native):
     path, root, manifest, _, _ = load(session)
-    if any((path / key).exists() for key in (REPORT, PATCH, RESPONSE)):
+    if any((path / key).exists() or (path / key).is_symlink()
+           for key in (REPORT, PATCH, RESPONSE, NATIVE)):
         raise ContractError("SESSION_ALREADY_GENERATED")
     response_path = None if offline_response_json is None else pathlib.Path(offline_response_json).resolve()
     if response_path is not None and response_path.is_relative_to(root):
         raise ContractError("REPLAY_INSIDE_SOURCE_REPOSITORY")
+    before = None
+    if response_path is None:
+        try:
+            before = inspector(manifest["profile"]["name"])
+        except Exception as exc:
+            raise ContractError("NATIVE_INSPECTION_BLOCKED") from exc
+        if not native_valid(before, manifest):
+            raise ContractError("NATIVE_INSPECTION_BLOCKED")
     outcome = generate_patch(
         root, path / ISSUE, manifest["profile"]["name"],
         path / REPORT, path / PATCH, timeout=timeout,
         offline_response_json=response_path, response_json_path=path / RESPONSE
     )
+    if response_path is None:
+        try:
+            after = inspector(manifest["profile"]["name"])
+        except Exception as exc:
+            save_outputs([(path / NATIVE, canonical({
+                "schema": 1, "status": "POST_INSPECTION_BLOCKED",
+                "profile": manifest["profile"], "before": before
+            }))])
+            raise ContractError("POST_INSPECTION_BLOCKED") from exc
+        native_report(path, manifest, before, after)
     return {"status": outcome["status"], "session": str(path),
             "mode": outcome["execution"]["mode"],
             "profile": manifest["profile"]["name"],
             "patch_sha256": outcome["validation"]["patch_sha256"],
             "inference_calls_attempted": int(response_path is None),
+            "native_identity": "VERIFIED" if before is not None else "NOT_RUN_OFFLINE",
             "human_review_required": True}
 
 
@@ -199,6 +244,20 @@ def check(session):
         raise ContractError("SESSION_EXECUTION_MISMATCH")
     if sha(read_bounded(path / RESPONSE, 256 * 1024)) != execution.get("response_sha256"):
         raise ContractError("SESSION_RESPONSE_MISMATCH")
+    if execution["mode"] == "local_inference":
+        if not (path / NATIVE).is_file():
+            raise ContractError("NATIVE_IDENTITY_EVIDENCE_MISSING")
+        try:
+            native = json.loads(read_bounded(path / NATIVE))
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise ContractError("NATIVE_IDENTITY_EVIDENCE_INVALID") from exc
+        if (not isinstance(native, dict) or native.get("status") != "VERIFIED"
+                or native.get("profile") != manifest["profile"]
+                or not native_valid(native.get("before"), manifest)
+                or native.get("before") != native.get("after")):
+            raise ContractError("NATIVE_IDENTITY_UNVERIFIED")
+    elif (path / NATIVE).exists():
+        raise ContractError("UNEXPECTED_NATIVE_IDENTITY_EVIDENCE")
     record, _ = review_patch(root, path / REPORT, path / PATCH)
     return {**record, "session": str(path), "human_review_required": True}
 
