@@ -4,12 +4,16 @@ import hashlib
 import http.client
 import json
 import pathlib
+import re
 import sys
+
+from windows_preflight import ollama_get, PreflightFailure
 
 from executor_bridge import ContractError
 from model_profiles import PROFILES, select_profile
 
 MAX_SHOW_BYTES = 1024 * 1024
+MODEL_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 def digest(value):
     if value is None:
@@ -22,6 +26,23 @@ def inspect(name, *, host="127.0.0.1", port=11434, timeout=20):
         raise ContractError("ONLY_LOOPBACK_OLLAMA_ALLOWED")
     if type(timeout) is not int or not 1 <= timeout <= 60:
         raise ContractError("INVALID_TIMEOUT")
+    # Ollama's /api/tags digest identifies the actual installed model manifest.
+    # /api/show alone does not reliably include an installed-model digest.
+    try:
+        tags = ollama_get("/api/tags", host=host, port=port,
+                          timeout=timeout, transport=http.client.HTTPConnection)
+    except PreflightFailure as exc:
+        raise ContractError("OLLAMA_TAGS_INVALID") from exc
+    inventory = tags.get("models")
+    if not isinstance(inventory, list):
+        raise ContractError("OLLAMA_TAGS_INVALID")
+    selected = [m for m in inventory if isinstance(m, dict)
+                and m.get("name") == profile.base_model]
+    if len(selected) != 1 or not isinstance(selected[0].get("digest"), str):
+        raise ContractError("OLLAMA_MODEL_NOT_IN_INVENTORY")
+    model_digest = selected[0]["digest"].lower()
+    if not MODEL_DIGEST.fullmatch(model_digest):
+        raise ContractError("OLLAMA_MODEL_DIGEST_INVALID")
     conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         conn.request(
@@ -69,6 +90,7 @@ def inspect(name, *, host="127.0.0.1", port=11434, timeout=20):
         "profile": profile.name, "profile_version": profile.version,
         "profile_fingerprint_sha256": profile.fingerprint,
         "native_model": profile.base_model,
+        "native_model_digest_sha256": model_digest,
         "native": native,
         "details": {k: details.get(k) for k in
                     ("family", "parameter_size", "quantization_level", "format")},
