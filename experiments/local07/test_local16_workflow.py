@@ -10,10 +10,21 @@ from unittest.mock import patch
 
 from executor_bridge import ContractError
 from local16_workflow import (
-    REPORT, PATCH, REQUEST, RESPONSE, ISSUE, MANIFEST,
+    REPORT, PATCH, REQUEST, RESPONSE, ISSUE, MANIFEST, NATIVE,
     create, load, generate, check, approve, status, tracked_sources,
 )
 from model_profiles import PROFILES
+
+def native_evidence(name):
+    return {
+        "status": "INSPECTED_NOT_GRADED",
+        "profile": name,
+        "native_model": PROFILES[name].base_model,
+        "profile_fingerprint_sha256": PROFILES[name].fingerprint,
+        "native_model_digest_sha256": "f" * 64,
+        "native": {"modelfile_sha256": "a" * 64}
+    }
+
 
 SCRIPT = pathlib.Path(__file__).with_name("local16_workflow.py")
 RESPONSE_BODY = {
@@ -85,6 +96,81 @@ class WorkflowSessionTests(unittest.TestCase):
         self.assertEqual(git(self.repo, "diff", "--name-only"), "calculator.py")
         self.assertEqual(status(self.session)["status"], "SOURCE_OR_PATCH_REQUIRES_INSPECTION")
         self.assertFalse(applied["code_execution"])
+
+    def test_live_generation_pins_native_identity_and_can_be_reviewed(self):
+        self.prepared("alternativo")
+        payload = json.dumps(RESPONSE_BODY).encode("utf-8")
+        native_reads = []
+        def inspector(name):
+            native_reads.append(name)
+            return native_evidence(name)
+        with patch("profile_cli.generate", return_value=payload) as model:
+            result = generate(self.session, inspector=inspector)
+        self.assertEqual(result["mode"], "local_inference")
+        self.assertEqual(result["native_identity"], "VERIFIED")
+        self.assertEqual(result["inference_calls_attempted"], 1)
+        self.assertEqual(native_reads, ["alternativo", "alternativo"])
+        model.assert_called_once()
+        evidence = json.loads((self.session / NATIVE).read_text())
+        self.assertEqual(evidence["before"]["native_model_digest_sha256"], "f" * 64)
+        self.assertEqual(evidence["status"], "VERIFIED")
+        self.assertEqual(check(self.session)["status"], "PATCH_READY_FOR_REVIEW")
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
+    def test_live_inspection_blocks_before_network_generation(self):
+        self.prepared()
+        with patch("profile_cli.generate") as model:
+            with self.assertRaisesRegex(ContractError, "NATIVE_INSPECTION_BLOCKED"):
+                generate(self.session, inspector=lambda _name: {"status": "NOT_FOUND"})
+            model.assert_not_called()
+        for name in (REPORT, RESPONSE, PATCH, NATIVE):
+            self.assertFalse((self.session / name).exists())
+
+    def test_digest_drift_after_live_generation_blocks_approval(self):
+        self.prepared()
+        reads = []
+        def inspector(name):
+            result = native_evidence(name)
+            reads.append(name)
+            if len(reads) == 2:
+                result["native_model_digest_sha256"] = "0" * 64
+            return result
+        with patch("profile_cli.generate", return_value=json.dumps(RESPONSE_BODY).encode()) as model:
+            with self.assertRaisesRegex(ContractError, "NATIVE_MODEL_IDENTITY_DRIFT"):
+                generate(self.session, inspector=inspector)
+        model.assert_called_once()
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(json.loads((self.session / NATIVE).read_text())["status"],
+                         "DRIFT_OR_INCOMPLETE")
+        with self.assertRaisesRegex(ContractError, "NATIVE_IDENTITY_UNVERIFIED"):
+            check(self.session)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
+    def test_unreachable_post_generation_inspection_refuses_review(self):
+        self.prepared()
+        calls = []
+        def inspector(name):
+            calls.append(name)
+            if len(calls) == 2:
+                raise OSError("private-system-failure-details")
+            return native_evidence(name)
+        with patch("profile_cli.generate", return_value=json.dumps(RESPONSE_BODY).encode()):
+            with self.assertRaisesRegex(ContractError, "POST_INSPECTION_BLOCKED"):
+                generate(self.session, inspector=inspector)
+        self.assertEqual(json.loads((self.session / NATIVE).read_text())["status"],
+                         "POST_INSPECTION_BLOCKED")
+        self.assertNotIn("private-system-failure-details",
+                         (self.session / NATIVE).read_text())
+        with self.assertRaisesRegex(ContractError, "NATIVE_IDENTITY_UNVERIFIED"):
+            check(self.session)
+
+    def test_missing_native_evidence_fails_live_review(self):
+        self.prepared()
+        with patch("profile_cli.generate", return_value=json.dumps(RESPONSE_BODY).encode()):
+            generate(self.session, inspector=native_evidence)
+        (self.session / NATIVE).unlink()
+        with self.assertRaisesRegex(ContractError, "NATIVE_IDENTITY_EVIDENCE_MISSING"):
+            check(self.session)
 
     def test_context_and_task_evidence_is_frozen_without_inference(self):
         self.prepared("economico")
