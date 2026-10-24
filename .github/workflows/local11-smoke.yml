@@ -1,7 +1,7 @@
 name: LOCAL-11 isolated smoke offline contracts
 on:
   push:
-    branches: [experiment/local11-windows-smoke, experiment/local13-real-issue-gates]
+    branches: [experiment/local11-windows-smoke, experiment/local13-real-issue-gates, experiment/local14-isolated-patch-gate]
     paths:
       - 'experiments/local07/**'
       - '.github/workflows/local11-smoke.yml'
@@ -21,4 +21,4 @@ jobs:
         run: |
           cd experiments/local07
           python3 -m compileall -q .
-          python3 -m unittest -v test_integrated_edit test_executor_bridge test_ollama_adapter test_windows_preflight test_windows_runtime_smoke test_fixture_functional_grade test_real_issue_gate test_import_lite_cases
+          python3 -m unittest -v test_integrated_edit test_executor_bridge test_ollama_adapter test_windows_preflight test_windows_runtime_smoke test_fixture_functional_grade test_real_issue_gate test_import_lite_cases test_real_patch_gate test_qualify_sandbox
