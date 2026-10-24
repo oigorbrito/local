@@ -124,7 +124,7 @@ class ReviewedPatch(unittest.TestCase):
 
     def test_evidence_inside_source_is_refused(self):
         inside = self.repo / "saved.patch"
-        (self.repo / ".git" / "info" / "exclude").write_text("saved.patch\\n", encoding="utf-8")
+        (self.repo / ".git" / "info" / "exclude").write_text("saved.patch" + chr(10), encoding="utf-8")
         inside.write_bytes(self.patch.read_bytes())
         with self.assertRaises(ContractError) as error:
             verify(self.repo, self.report, inside)
