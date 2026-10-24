@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from integrated_edit import assess
+from retrieve_context import retrieve
 
 def git(root,*args):
     return subprocess.run(['git',*args],cwd=root,check=True,capture_output=True,text=True).stdout
@@ -30,3 +31,20 @@ class IntegrationGate(unittest.TestCase):
             with self.subTest(path=path),self.assertRaises((ValueError,SyntaxError)):assess(self.root,self.issue,path,source)
         (self.root/'target.py').write_text('x=3\n')
         with self.assertRaises(ValueError):assess(self.root,self.issue,'target.py','x=4\n')
+
+    def test_retrieval_never_reads_external_symlinks(self):
+        # No sensitive content from an outside file may enter the model context.
+        outside=self.root.parent/'local07-external-private.py'
+        outside.write_text('def secret_marker_function():\n    return "never-expose"\n',encoding='utf-8')
+        link=self.root/'leak.py'
+        try:
+            link.symlink_to(outside)
+        except (OSError,NotImplementedError):
+            self.skipTest('symlink creation unavailable on this runner')
+        try:
+            results=retrieve(self.root,'Fix leak.py secret_marker_function')
+            self.assertNotIn('leak.py',results['selected_files'])
+            self.assertNotIn('never-expose',str(results))
+        finally:
+            link.unlink(missing_ok=True)
+            outside.unlink(missing_ok=True)
