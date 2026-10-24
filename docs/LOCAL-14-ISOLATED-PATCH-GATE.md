@@ -29,3 +29,24 @@ python .\experiments\local07\real_patch_gate.py `
 ```
 
 Separar métricas: recuperação, geração, contrato, aplicabilidade, testes públicos em sandbox e resolução oficial. Não computar taxa de resolução até executar um avaliador oficial com instâncias, versões e isolamento definidos.
+
+## Qualificação real de sandbox — Linux GitHub Actions, 24/10/2026
+
+Foi implementado `experiments/local07/qualify_sandbox.py`, que usa uma imagem **já presente**, especificada por digest `@sha256:`, para executar apenas uma sonda Python inofensiva. A sonda verifica UID, capacidades efetivas do processo, escrita na raiz do contêiner e possibilidade de uma conexão externa. O comando é explícito e usa `--pull never`.
+
+[Workflow real #40098567923](https://github.com/oigorbrito/local/actions/runs/40098567923): **PASS**. Observações: `uid=65534`, `cap_eff=0000000000000000`, `root_writable=false`, `outbound_network=BLOCKED`. O workflow obteve a imagem pública `python:3.12-slim` e **fixou o digest obtido antes da execução**. Esta sondagem ocorre num runner Linux controlado; não valida a segurança absoluta de containers, não testa execução de patches de modelos nem avalia resolução SWE-bench.
+
+Contratos offline também cobrem observações negativas, ausência de download implícito na sonda e construção dos argumentos Docker. A aplicação do patch e a execução de testes públicos continuam sob opt-in; para código não confiável, recomenda-se VM/host descartável, sem credenciais sensíveis, além das restrições Docker.
+
+### Qualificação no Windows (pendente, sem patch de modelo)
+
+Após preparar uma imagem Python local com digest íntegro e verificar que `docker image inspect <referência@sha256>` a reconhece, executar:
+
+```powershell
+python .\experiments\local07\qualify_sandbox.py `
+  --image "python@sha256:<digest-exato-ja-presente-localmente>" `
+  --output .\runs\local14\sandbox-windows.json
+Get-Content .\runs\local14\sandbox-windows.json -Raw
+```
+
+A referência de digest acima é marcador de exemplo, **não** um hash inventado; copiar o valor verdadeiro retornado por `docker image inspect`. `qualified=true` prova somente as propriedades observadas. Nunca montar senhas, tokens, Docker socket, diretórios pessoais ou repositórios reais não isolados.
