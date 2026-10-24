@@ -101,3 +101,24 @@ class RealPatchGateTests(unittest.TestCase):
                             for x in run))
         self.assertEqual(run[-3:],["sh","-c","python -m pytest -q"])
         self.assertEqual(git(self.root,"status","--porcelain"),"")
+
+    def test_container_timeout_always_triggers_targeted_cleanup(self):
+        import real_patch_gate
+        from unittest.mock import patch
+        real_cmd=real_patch_gate.cmd
+        digest="python@sha256:"+("b"*64)
+        calls=[]
+        def observed(args, **kwargs):
+            if args[0] == "docker":
+                calls.append(args)
+                if args[1] == "run":
+                    raise subprocess.TimeoutExpired(args,240)
+                return subprocess.CompletedProcess(args,0,b"",b"")
+            return real_cmd(args, **kwargs)
+        with patch("real_patch_gate.cmd",side_effect=observed):
+            with self.assertRaisesRegex(GateError,"CONTAINER_TIMEOUT_CLEANUP_REQUIRED"):
+                grade(self.root,self.spec,self.patch,image=digest,
+                      test_command="python -m pytest -q",run_tests=True)
+        self.assertEqual([c[1] for c in calls],["image","run","rm"])
+        self.assertEqual(calls[-1][-1],calls[1][calls[1].index("--name")+1])
+        self.assertEqual(git(self.root,"status","--porcelain"),"")
