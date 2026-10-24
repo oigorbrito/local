@@ -19,6 +19,17 @@ def git(repo, *args, input=None):
     return r.stdout
 
 
+def check_patch_index(repo, patch):
+    """Feed UTF-8 patch bytes verbatim: text=True rewrites LF to CRLF on Windows."""
+    data = patch.encode('utf-8')
+    proc = subprocess.run(
+        ['git', 'apply', '--cached', '--check', '-'],
+        cwd=repo, input=data, capture_output=True, timeout=45
+    )
+    if proc.returncode:
+        raise RuntimeError('GIT_APPLY_CHECK_FAILED: ' + proc.stderr.decode('utf-8', errors='replace')[:300])
+
+
 def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_files=2):
     repo=pathlib.Path(repo).resolve()
     if not (repo/'.git').exists(): raise ValueError('REQUIRES_GIT_CHECKOUT')
@@ -58,7 +69,7 @@ def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_
             git(isolated,'diff','--check')
             patch=git(isolated,'diff','--binary','--',replacement_path)
             if not patch: raise ValueError('NO_CHANGE')
-            git(repo,'apply','--cached','--check','-',input=patch)
+            check_patch_index(repo, patch)
             report={'result':'PATCH_APPLICABLE_NOT_GRADED','commit':baseline,'selected_files':allowed,
                     'edited_file':replacement_path,'context_chars':outcome['context_chars'],
                     'source_sha256':original_sha,'patch_sha256':hashlib.sha256(patch.encode()).hexdigest(),
