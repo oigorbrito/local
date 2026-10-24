@@ -69,3 +69,32 @@ class RealPatchGateTests(unittest.TestCase):
     def test_explicit_test_mode_requires_pinned_image(self):
         with self.assertRaisesRegex(GateError,"PINNED_LOCAL_IMAGE_REQUIRED"):
             grade(self.root,self.spec,self.patch,run_tests=True)
+
+    def test_docker_command_is_bounded_and_network_disabled(self):
+        import real_patch_gate
+        from unittest.mock import patch
+        real_cmd=real_patch_gate.cmd
+        calls=[]
+        digest="python@sha256:"+("a"*64)
+
+        def observed(args, **kwargs):
+            if args[0] == "docker":
+                calls.append(args)
+                return subprocess.CompletedProcess(args, 0, b"success\n", b"")
+            return real_cmd(args, **kwargs)
+
+        with patch("real_patch_gate.cmd",side_effect=observed):
+            result=grade(self.root,self.spec,self.patch,image=digest,
+                         test_command="python -m pytest -q",run_tests=True)
+        self.assertEqual(result["status"],"PUBLIC_TESTS_PASS")
+        self.assertEqual(len(calls),2)
+        run=calls[1]
+        self.assertEqual(run[:3],["docker","run","--rm"])
+        for item in ["--network","none","--read-only","--cap-drop","ALL",
+                     "--security-opt","no-new-privileges","--pids-limit","128",
+                     "--memory","2g","--cpus","2","--user","65534:65534"]:
+            self.assertIn(item,run)
+        self.assertTrue(any(x.startswith("type=bind,src=") and x.endswith(",dst=/src,readonly")
+                            for x in run))
+        self.assertEqual(run[-3:],["sh","-c","python -m pytest -q"])
+        self.assertEqual(git(self.root,"status","--porcelain"),"")
