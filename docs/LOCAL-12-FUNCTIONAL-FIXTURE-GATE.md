@@ -24,6 +24,6 @@ Get-Content .\runs\local12\functional-result.json -Raw
 - `FIXTURE_PASS` = os quatro casos receberam o valor esperado **sob a semântica restrita do interpretador AST**, e o SHA256 da resposta coincide com o arquivo esperado.
 - `FIXTURE_FAIL` = uma expressão suportada produziu resultado errado.
 - `UNSUPPORTED_AST` = resultado não avaliado por desenho do gate; não é falha comprovada do modelo.
-- A origem observada no LOCAL-11 anterior tem SHA256 `774079098d0e0383c0d19819046e2e5c0be8b7f20dc45b3e5b3205a61e6d3783`, confirmado pelo usuário. O LOCAL-12 só estará homologado **para a resposta real** depois de ler o novo relatório Windows e conferir esse hash.
+- A origem observada no LOCAL-11 anterior tem SHA256 `774079098d0e0383c0d19819046e2e5c0be8b7f20dc45b3e5b3205a61e6d3783`, confirmado pelo usuário. O relatório real do Windows confirmou **FIXTURE_PASS (4/4)** com hash idêntico; saída esperada e obtida: `[1,2,6,6]`. O avaliador AST não executou código gerado e não constitui prova de resolução de issues reais.
 - **Não** demonstra execução real do código candidato, resolução de issue SWE-bench, generalização a outros códigos ou segurança de aplicações arbitrárias.
 - Nenhum benchmark anterior foi repetido; a PR #20 permanece draft e não deve ser integrada antes da revisão de segurança e evidência real.
