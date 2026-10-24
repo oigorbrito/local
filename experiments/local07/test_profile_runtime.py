@@ -8,6 +8,10 @@ from unittest.mock import patch
 
 from executor_bridge import ContractError
 from inspect_profiles import inspect, MAX_SHOW_BYTES
+
+def inventory(name):
+    return {"models": [{"name": name, "digest": "f" * 64}]}
+
 from model_profiles import PROFILES, select_profile
 from ollama_adapter import generate
 from profile_cli import run
@@ -109,12 +113,14 @@ class InspectionTests(unittest.TestCase):
             "capabilities": ["completion", "tools"]
         }
         conn = MockConnection(MockShowResponse(json.dumps(native).encode()))
-        with patch("inspect_profiles.http.client.HTTPConnection", return_value=conn):
+        with patch("inspect_profiles.http.client.HTTPConnection", return_value=conn), \
+             patch("inspect_profiles.ollama_get", return_value=inventory("qwen3.5:4b")):
             record = inspect("alternativo")
         args, kwargs = conn.request_args
         self.assertEqual(args[:2], ("POST", "/api/show"))
         self.assertEqual(json.loads(kwargs["body"])["model"], "qwen3.5:4b")
         self.assertEqual(record["status"], "INSPECTED_NOT_GRADED")
+        self.assertEqual(record["native_model_digest_sha256"], "f" * 64)
         self.assertEqual(record["details"]["family"], "qwen")
         self.assertEqual(record["declared_capabilities"], ["completion", "tools"])
         self.assertNotIn("secret-internal-metadata", json.dumps(record))
@@ -138,10 +144,27 @@ class InspectionTests(unittest.TestCase):
         for blob, status, length in cases:
             with self.subTest(status=status, blob_len=len(blob)):
                 conn = MockConnection(MockShowResponse(blob, status, length))
-                with patch("inspect_profiles.http.client.HTTPConnection", return_value=conn):
+                with patch("inspect_profiles.http.client.HTTPConnection", return_value=conn), \
+                     patch("inspect_profiles.ollama_get", return_value=inventory("qwen3.5:2b")):
                     with self.assertRaises(ContractError):
                         inspect("economico")
                 self.assertTrue(conn.closed)
+
+    def test_absent_or_invalid_installed_model_digest_fails_before_show(self):
+        invalid = (
+            {"models": []},
+            {"models": [{"name": "qwen3.5:2b", "digest": "xyz"}]},
+            {"models": [{"name": "qwen3.5:2b", "digest": "f" * 64},
+                        {"name": "qwen3.5:2b", "digest": "f" * 64}]},
+            {"models": "not a list"}
+        )
+        for tags in invalid:
+            with self.subTest(tags=tags), \
+                 patch("inspect_profiles.ollama_get", return_value=tags), \
+                 patch("inspect_profiles.http.client.HTTPConnection") as network:
+                with self.assertRaises(ContractError):
+                    inspect("economico")
+                network.assert_not_called()
 
 
 class ProfileIntegrationTests(unittest.TestCase):
