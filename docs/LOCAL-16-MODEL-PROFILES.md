@@ -112,6 +112,44 @@ em ambiente host ou resolução oficial de benchmarks. Os metadados da
 instalação do usuário continuam `NOT_OBSERVED` enquanto o gate real não
 for executado naquele Windows.
 
+## Aplicação supervisionada do patch (sem executar código)
+
+O `profile_cli.py` **nunca escreve artefatos dentro do checkout fonte**,
+não sobrescreve arquivos preexistentes e rejeita colisões de caminho antes
+de chamar o modelo. Os resultados devem estar fora da raiz Git.
+
+Para passar do patch produzido para uma edição real, a intervenção humana
+é explícita: inspecione `candidate.patch` em editor ou diff. Em seguida,
+valide independentemente a aplicação (LOCAL-14) e obtenha o SHA-256:
+
+```powershell
+python experiments/local07/reviewed_patch.py --repo D:\\codigo\\meu-projeto --report D:\\evidencias\\local16-report.json --patch D:\\evidencias\\candidate.patch --check
+```
+
+O modo `--check` somente consulta e valida: estado Git limpo, commit-base,
+digest SHA-256, arquivo autorizado, identidade da fonte, formato do patch
+e aplicabilidade em worktree descartável. **Não altera o checkout**.
+
+Após efetivamente revisar o diff, é possível autorizar a alteração com o
+hash integral devolvido pelo `--check`:
+
+```powershell
+python experiments/local07/reviewed_patch.py --repo D:\\codigo\\meu-projeto --report D:\\evidencias\\local16-report.json --patch D:\\evidencias\\candidate.patch --approve-sha256 COLE_O_SHA256_COMPLETO
+```
+
+Sem a confirmação exata do SHA-256, falha fechado. Ao aplicar, altera
+**somente o arquivo autorizado**, deixa a alteração **não staged** e não
+executa testes, shell do candidato, hooks, commits, merges ou atualizações
+automáticas. O estado reportado é `PATCH_APPLIED_UNSTAGED`, não
+`ISSUE_RESOLVED`. Um patch sintaticamente válido pode conter lógica
+incorreta ou insegura; revisão humana continua mandatória.
+
+Os relatórios publicados antes desta mudança que escrevem arquivos de
+saída dentro do checkout não devem ser reutilizados para aplicação: gere
+novas evidências fora do repositório. O modo `--check` é idempotente
+enquanto fonte e evidências permanecerem intactas; a segunda aplicação
+falha pelo estado Git sujo.
+
 ## Invariantes verificáveis
 
 1. O checkout fonte precisa ser um repositório Git limpo. HEAD e limpeza
@@ -137,6 +175,9 @@ for executado naquele Windows.
   adaptador, restrições de transporte, digest do modelo instalado, auditoria
   sanitizada, respostas inválidas, replay funcional em repositório Git real e
   ausência de mutações.
+- `test_reviewed_patch.py` — inspeção independente pelo LOCAL-14 e aplicação
+  somente por SHA aprovado; validação de alterações de conteúdo, commit,
+  caminhos e limpeza do repositório, sem rodar código gerado.
 - `test_local16_acceptance.py` — oráculo de semântica funcional limitado à
   fixture, auditoria dos três modelos, geração mockada limitada a uma tentativa,
   replay offline, detecção de drift de digest/template, ausência de alteração
