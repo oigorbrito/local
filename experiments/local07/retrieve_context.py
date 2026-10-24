@@ -29,13 +29,16 @@ def spans(source):
     return result
 
 def retrieve(root, issue, max_chars=9000, top_k=8):
-    root=pathlib.Path(root)
+    root=pathlib.Path(root).resolve()
     traceback_files={pathlib.PurePath(p).name.lower() for p,_ in TRACE_RE.findall(issue)}
     mentioned={x.lower() for x in FILE_RE.findall(issue)}
     issue_tokens=words(issue)
     symbols={x.lower() for x in QUALIFIED_RE.findall(issue)}
     ranked=[]
     for path in sorted(root.rglob('*.py')):
+        # Never inspect files reachable through symlinks or outside the source root.
+        if path.is_symlink() or not path.resolve().is_relative_to(root):
+            continue
         relative=path.relative_to(root).as_posix()
         if any(p in {'tests','test','docs','examples','.venv','site-packages','__pycache__'} for p in path.parts): continue
         if path.name.startswith('test_') or '/test_' in relative: continue
