@@ -23,6 +23,18 @@ class WindowsSmokeTest(unittest.TestCase):
                 # git fixture uses subprocess internally; mock only the adapter
                 pass
 
+    def test_replay_uses_saved_response_without_generation(self):
+        import json
+        with tempfile.TemporaryDirectory() as folder:
+            response = pathlib.Path(folder) / "saved.json"
+            response.write_text(json.dumps({"schema": 1, "file": "calculator.py",
+                           "content": "def calculate_total(items):\\n    return sum(items) + 1\\n"}).replace("\\\\n","\\n"), encoding="utf-8")
+            report=smoke(pathlib.Path(folder)/"replay",response_json=response)
+            self.assertEqual(report["inference_calls_attempted"],0)
+            self.assertEqual(report["mode"],"OFFLINE_REPLAY")
+            self.assertEqual(report["status"],"PATCH_APPLICABLE_NOT_GRADED")
+            self.assertTrue(report["source_unchanged"])
+
     def test_wrong_model_rejected_before_inference(self):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(ValueError):
