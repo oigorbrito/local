@@ -25,3 +25,27 @@ jobs:
               assert len(case["base_commit"])==40
               print(case["id"], case["split"], case["base_commit"])
           PY
+      - name: Checkout pinned original source and measure real retrieval
+        run: |
+          python3 - "$RUNNER_TEMP/local13-cases" <<'PY'
+          import json, pathlib, subprocess, sys
+          root=pathlib.Path(sys.argv[1])
+          mapping={"marshmallow-code__marshmallow-1343":"marshmallow-code/marshmallow",
+                   "marshmallow-code__marshmallow-1359":"marshmallow-code/marshmallow",
+                   "pvlib__pvlib-python-1072":"pvlib/pvlib-python"}
+          for instance, origin in mapping.items():
+              case=root/instance
+              issue=json.loads((case/"issue.json").read_text())
+              dest=root/("source-"+instance)
+              subprocess.run(["git","clone","--quiet","--filter=blob:none","--no-checkout",
+                              "https://github.com/"+origin+".git",str(dest)],check=True,timeout=120)
+              subprocess.run(["git","-C",str(dest),"checkout","--quiet",issue["base_commit"]],check=True,timeout=90)
+              out=case/"retrieval.json"
+              subprocess.run([sys.executable,"experiments/local07/real_issue_gate.py",
+                              "--repo",str(dest),"--issue-json",str(case/"issue.json"),
+                              "--evaluator-json",str(case/"evaluator.json"),
+                              "--output",str(out)],check=True,timeout=120)
+              result=json.loads(out.read_text())
+              print("REAL_RETRIEVAL",instance,"top1",result["recall_at_1"],
+                    "top2",result["recall_at_2"],"selected",result["top_2"])
+          PY
