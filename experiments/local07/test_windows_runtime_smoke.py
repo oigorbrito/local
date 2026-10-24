@@ -1,27 +1,31 @@
 """LOCAL-11 orchestration contract; no Ollama requests."""
 import pathlib
+import json
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
 from windows_runtime_smoke import smoke
 
 
-class FakeProcess:
-    returncode = 0
-    stderr = ""
-    stdout = '{"status":"PATCH_APPLICABLE_NOT_GRADED"}'
-
-
 class WindowsSmokeTest(unittest.TestCase):
-    def test_success_isolated_and_reported(self):
+    def test_failure_isolated_and_reported(self):
         with tempfile.TemporaryDirectory() as folder:
+            real_run = subprocess.run
             def fake_run(command, **kwargs):
-                output = pathlib.Path(command[command.index("--patch") + 1])
-                output.write_bytes(b"diff --git a/calculator.py b/calculator.py\n")
-                return FakeProcess()
+                if isinstance(command, list) and len(command) > 1 and "ollama_adapter.py" in str(command[1]):
+                    repo = pathlib.Path(command[command.index("--repo") + 1])
+                    self.assertEqual(real_run(["git", "status", "--porcelain"],
+                                              cwd=repo, capture_output=True,
+                                              text=True, check=True).stdout, "")
+                    return subprocess.CompletedProcess(command, 1, stdout="", stderr="SYNTHETIC_ADAPTER_ERROR")
+                return real_run(command, **kwargs)
             with patch("windows_runtime_smoke.subprocess.run", side_effect=fake_run):
-                # git fixture uses subprocess internally; mock only the adapter
-                pass
+                result = smoke(pathlib.Path(folder) / "run")
+            self.assertEqual(result["status"], "ADAPTER_FAILED")
+            self.assertEqual(result["inference_calls_attempted"], 1)
+            self.assertIn("SYNTHETIC_ADAPTER_ERROR", result["stderr_tail"])
+            self.assertTrue(result["source_unchanged"])
 
     def test_replay_uses_saved_response_without_generation(self):
         import json
@@ -34,6 +38,7 @@ class WindowsSmokeTest(unittest.TestCase):
             self.assertEqual(report["mode"],"OFFLINE_REPLAY")
             self.assertEqual(report["status"],"PATCH_APPLICABLE_NOT_GRADED")
             self.assertTrue(report["source_unchanged"])
+            self.assertEqual(report["transport"], "NOT_EVALUATED")
 
     def test_wrong_model_rejected_before_inference(self):
         with tempfile.TemporaryDirectory() as folder:
