@@ -3,7 +3,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
-from integrated_edit import assess
+from integrated_edit import assess, check_patch_index
 from retrieve_context import retrieve
 
 def git(root,*args):
@@ -59,3 +59,14 @@ class IntegrationGate(unittest.TestCase):
         self.assertEqual(report['result'],'PATCH_APPLICABLE_NOT_GRADED')
         self.assertIn('+    return x+2',patch)
         self.assertEqual(git(self.root,'status','--porcelain'), '')
+
+    def test_git_apply_receives_patch_bytes_without_text_translation(self):
+        from unittest.mock import patch as mocked
+        from subprocess import CompletedProcess
+        payload = "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-old\n+new\n"
+        with mocked('integrated_edit.subprocess.run', return_value=CompletedProcess([], 0, b'', b'')) as spy:
+            check_patch_index(self.root, payload)
+        _, kwargs = spy.call_args
+        self.assertEqual(kwargs['input'], payload.encode('utf-8'))
+        self.assertNotIn('text', kwargs)
+        self.assertNotIn('\\r\\n', kwargs['input'].decode('utf-8'))
