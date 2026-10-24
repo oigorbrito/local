@@ -11,7 +11,7 @@ import pathlib
 from executor_bridge import ContractError, MAX_RESPONSE_BYTES, prepare, parse_response, replay
 
 
-def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180):
+def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180, system=None, options=None):
     if host not in {"127.0.0.1", "localhost", "::1"} or not (1 <= port <= 65535):
         raise ContractError("ONLY_LOOPBACK_OLLAMA_ALLOWED")
     if not isinstance(model, str) or not model or len(model) > 128 or any(c.isspace() for c in model):
@@ -22,13 +22,24 @@ def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180):
         "Never return markdown, shell commands, or explanation.\n"
         + json.dumps(request.to_json(), ensure_ascii=False)
     )
-    body = json.dumps({
-        "model": model,
-        "stream": False,
-        "format": "json",
-        "options": {"temperature": 0, "num_ctx": 4096, "num_predict": 2048},
-        "prompt": prompt
-    }).encode("utf-8")
+    default_options = {"temperature": 0, "num_ctx": 4096, "num_predict": 2048}
+    if options is not None and (
+        not isinstance(options, dict)
+        or set(options) != set(default_options)
+        or any(type(options[k]) is not int or options[k] != default_options[k] for k in default_options)
+    ):
+        raise ContractError("UNVERIFIED_INFERENCE_OPTIONS")
+    if system is not None and (
+        not isinstance(system, str) or not system.strip() or len(system) > 4096
+    ):
+        raise ContractError("INVALID_SYSTEM_INSTRUCTION")
+    body_obj = {
+        "model": model, "stream": False, "format": "json",
+        "options": default_options, "prompt": prompt
+    }
+    if system is not None:
+        body_obj["system"] = system
+    body = json.dumps(body_obj).encode("utf-8")
     conn = http.client.HTTPConnection(host, port, timeout=timeout)
     try:
         conn.request("POST", "/api/generate", body=body, headers={"Content-Type": "application/json"})
