@@ -38,6 +38,11 @@ def verify_patch(patch, allowed):
         normalized.is_absolute() or ".." in normalized.parts or
         normalized.as_posix() != aa):
         raise GateError("PATCH_OUT_OF_SCOPE")
+    expected_old = ("--- a/" + aa + "\n").encode("utf-8")
+    expected_new = ("+++ b/" + aa + "\n").encode("utf-8")
+    if (patch.count(b"--- ") != 1 or patch.count(b"+++ ") != 1 or
+        expected_old not in patch or expected_new not in patch):
+        raise GateError("PATCH_HEADER_MISMATCH")
     if (b"GIT binary patch" in patch or b"new file mode" in patch or
         b"deleted file mode" in patch or b"rename from " in patch or
         b"copy from " in patch or b"old mode " in patch or b"new mode " in patch):
