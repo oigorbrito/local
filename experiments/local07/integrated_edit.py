@@ -58,7 +58,7 @@ def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_
             git(isolated,'diff','--check')
             patch=git(isolated,'diff','--binary','--',replacement_path)
             if not patch: raise ValueError('NO_CHANGE')
-            git(repo,'apply','--check','-',input=patch)
+            git(repo,'apply','--cached','--check','-',input=patch)
             report={'result':'PATCH_APPLICABLE_NOT_GRADED','commit':baseline,'selected_files':allowed,
                     'edited_file':replacement_path,'context_chars':outcome['context_chars'],
                     'source_sha256':original_sha,'patch_sha256':hashlib.sha256(patch.encode()).hexdigest(),
