@@ -1,0 +1,22 @@
+name: LOCAL-15 host attestation contracts
+on:
+  push:
+    branches: [experiment/local15-host-attestation]
+  pull_request:
+    paths:
+      - 'experiments/local07/host_attestation.py'
+      - 'experiments/local07/test_host_attestation.py'
+      - '.github/workflows/local15-host-gate.yml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate fail-closed host gate
+        run: |
+          cd experiments/local07
+          python3 -m compileall -q host_attestation.py test_host_attestation.py
+          python3 -m unittest -v test_host_attestation
