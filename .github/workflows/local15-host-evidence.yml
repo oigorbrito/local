@@ -1,0 +1,42 @@
+name: LOCAL-15 GitHub-hosted host evidence
+on:
+  push:
+    branches: [experiment/local15-host-attestation]
+    paths:
+      - '.github/workflows/local15-host-evidence.yml'
+      - 'experiments/local07/host_attestation.py'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Observe host and validate no-code-execution boundary
+        shell: bash
+        env:
+          GH_RUNNER_ENV: ${{ runner.environment }}
+          GH_RUNNER_OS: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+          test "$GH_RUNNER_ENV" = "github-hosted"
+          test "$GH_RUNNER_OS" = "Linux"
+          test "$(id -u)" -ne 0
+          python3 - <<'PY'
+          import json, os, pathlib, platform
+          flags = {
+              "runner_environment": os.environ["GH_RUNNER_ENV"],
+              "runner_os": os.environ["GH_RUNNER_OS"],
+              "observed_kernel": platform.release(),
+              "observed_uid": os.getuid(),
+              "docker_invoked": False,
+              "candidate_code_executed": False,
+              "vm_disposal_directly_observed": False,
+              "credentials_absence_proven": False,
+              "untrusted_execution_authorized": False
+          }
+          print("LOCAL15_HOST_OBSERVATION=" + json.dumps(flags,sort_keys=True))
+          assert flags["runner_environment"] == "github-hosted"
+          assert flags["runner_os"] == "Linux"
+          assert not flags["untrusted_execution_authorized"]
+          PY
