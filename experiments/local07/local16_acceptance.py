@@ -199,6 +199,23 @@ def acceptance(output_dir, *, mode="audit", profile_name="principal",
                         record["single_worktree"] = len(_git(root, "worktree", "list", "--porcelain").split("worktree ")) == 2
                         if not record["source_unchanged"] or not record["single_worktree"]:
                             record["status"] = "SOURCE_INTEGRITY_FAILURE"
+                        if mode == "live":
+                            try:
+                                after = auditor(profile_name)
+                                before = record["native_evidence"]
+                                identity = ("native_model", "native_model_digest_sha256",
+                                            "profile_fingerprint_sha256", "native")
+                                if after.get("status") != "INSPECTED_NOT_GRADED" or any(
+                                    before.get(key) != after.get(key) for key in identity
+                                ):
+                                    record["native_inspection"] = "DRIFT"
+                                    record["status"] = "NATIVE_MODEL_DRIFT"
+                                else:
+                                    record["native_post_generation_verified"] = True
+                            except Exception as exc:
+                                record["native_inspection"] = "POST_INSPECTION_FAILED"
+                                record["status"] = "POST_INSPECTION_BLOCKED"
+                                record["reason"] = _safe_reason(exc)
     except Exception as exc:
         record["status"] = "INFRA_FAILURE"
         record["reason"] = _safe_reason(exc)
