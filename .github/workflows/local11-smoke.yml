@@ -1,0 +1,24 @@
+name: LOCAL-11 isolated smoke offline contracts
+on:
+  push:
+    branches: [experiment/local11-windows-smoke]
+    paths:
+      - 'experiments/local07/**'
+      - '.github/workflows/local11-smoke.yml'
+  pull_request:
+    paths:
+      - 'experiments/local07/**'
+      - '.github/workflows/local11-smoke.yml'
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and validate grouped offline contracts
+        run: |
+          cd experiments/local07
+          python3 -m compileall -q .
+          python3 -m unittest -v test_integrated_edit test_executor_bridge test_ollama_adapter test_windows_preflight test_windows_runtime_smoke
