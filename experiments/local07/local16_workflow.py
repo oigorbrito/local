@@ -179,17 +179,32 @@ def generate(session, *, offline_response_json=None, timeout=180):
 
 
 def check(session):
-    path, root, _, _, _ = load(session)
-    if not (path / REPORT).is_file() or not (path / PATCH).is_file():
+    path, root, manifest, _, request = load(session)
+    if not all((path / item).is_file() for item in (REPORT, PATCH, RESPONSE)):
         raise ContractError("SESSION_NOT_GENERATED")
+    try:
+        report = json.loads(read_bounded(path / REPORT))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise ContractError("SESSION_REPORT_INVALID") from exc
+    if not isinstance(report, dict) or report.get("request") != request:
+        raise ContractError("SESSION_REQUEST_MISMATCH")
+    execution = report.get("execution")
+    if not isinstance(execution, dict):
+        raise ContractError("SESSION_EXECUTION_MISSING")
+    if (execution.get("selected_profile") != manifest["profile"]
+            or execution.get("system_policy_sha256") != manifest["profile"]["fingerprint_sha256"]
+            or execution.get("mode") not in {"offline_replay", "local_inference"}
+            or execution.get("model_invoked") is not (execution["mode"] == "local_inference")):
+        raise ContractError("SESSION_EXECUTION_MISMATCH")
+    if sha(read_bounded(path / RESPONSE, 256 * 1024)) != execution.get("response_sha256"):
+        raise ContractError("SESSION_RESPONSE_MISMATCH")
     record, _ = review_patch(root, path / REPORT, path / PATCH)
     return {**record, "session": str(path), "human_review_required": True}
 
 
 def approve(session, approved_sha256):
+    check(session)
     path, root, _, _, _ = load(session)
-    if not (path / REPORT).is_file() or not (path / PATCH).is_file():
-        raise ContractError("SESSION_NOT_GENERATED")
     result = apply_reviewed(root, path / REPORT, path / PATCH, approved_sha256)
     return {**result, "session": str(path), "human_review_required": False}
 
