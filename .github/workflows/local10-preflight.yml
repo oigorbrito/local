@@ -1,0 +1,25 @@
+name: LOCAL-10 read-only runtime preflight contracts
+on:
+  push:
+    branches: [experiment/local10-windows-runtime-preflight]
+    paths:
+      - 'experiments/local07/**'
+      - '.github/workflows/local10-preflight.yml'
+  pull_request:
+    paths:
+      - 'experiments/local07/**'
+      - '.github/workflows/local10-preflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check complete offline integration gate
+        run: |
+          cd experiments/local07
+          python3 -m compileall -q .
+          python3 -m unittest -v test_integrated_edit test_executor_bridge test_ollama_adapter test_windows_preflight
