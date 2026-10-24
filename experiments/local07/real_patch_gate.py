@@ -10,6 +10,7 @@ import pathlib
 import re
 import subprocess
 import tempfile
+import uuid
 
 DIFF = re.compile(rb"^diff --git a/([^\r\n]+) b/([^\r\n]+)$", re.M)
 SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -98,13 +99,25 @@ def grade(repo, issue, patch_file, image=None, test_command=None, run_tests=Fals
             docker=cmd(["docker","image","inspect",image],timeout=30)
             if docker.returncode:
                 raise GateError("IMAGE_NOT_PRESENT_NO_PULL")
-            container=cmd(["docker","run","--rm","--network","none","--read-only",
+            container_name = "local14-" + uuid.uuid4().hex
+            try:
+                container=cmd(["docker","run","--rm","--pull","never","--name",container_name,
+                           "--network","none","--read-only",
                            "--cap-drop","ALL","--security-opt","no-new-privileges",
                            "--pids-limit","128","--memory","2g","--cpus","2",
                            "--user","65534:65534","--tmpfs","/tmp:rw,nosuid,noexec,size=128m",
                            "--mount",f"type=bind,src={checkout},dst=/src,readonly",
                            "--workdir","/src",image,
                            "sh","-c",test_command],timeout=240)
+            except subprocess.TimeoutExpired as exc:
+                result["status"]="PUBLIC_TESTS_TIMEOUT"
+                result["test_status"]="TIMEOUT"
+                raise GateError("CONTAINER_TIMEOUT_CLEANUP_REQUIRED") from exc
+            finally:
+                # Kill/remove only our uniquely named container, even on timeout.
+                cleanup=cmd(["docker","rm","-f",container_name],timeout=30)
+                if cleanup.returncode not in (0, 1):
+                    raise GateError("CONTAINER_CLEANUP_UNVERIFIED")
             result["test_status"]="PASS" if container.returncode==0 else "FAIL"
             result["status"]="PUBLIC_TESTS_PASS" if container.returncode==0 else "PUBLIC_TESTS_FAIL"
             result["test_exit_code"]=container.returncode
