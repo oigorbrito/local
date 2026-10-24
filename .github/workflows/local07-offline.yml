@@ -1,7 +1,7 @@
 name: LOCAL-07 offline integration gate
 on:
   push:
-    branches: [experiment/local-restart-protocol-01]
+    branches: [experiment/local-restart-protocol-01, review/local07-offline-integration]
     paths:
       - 'experiments/local07/**'
       - '.github/workflows/local07-offline.yml'
