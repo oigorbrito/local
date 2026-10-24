@@ -48,7 +48,7 @@ def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180):
             run_git(root, "add", "calculator.py")
             run_git(root, "commit", "-qm", "LOCAL-11 disposable fixture")
             origin_sha = hashlib.sha256((root / "calculator.py").read_bytes()).hexdigest()
-            issue_path = root / "issue.json"
+            issue_path = output_dir / "local11-issue.json"
             issue_path.write_text(json.dumps({"problem_statement": ISSUE}), encoding="utf-8")
             report["fixture_commit"] = run_git(root, "rev-parse", "HEAD")
             report["fixture_source_sha256"] = origin_sha
@@ -78,7 +78,7 @@ def smoke(output_dir, model="nemotron-3-nano:4b", timeout=180):
                 report["status"]="ADAPTER_TIMEOUT"
             if hashlib.sha256((root / "calculator.py").read_bytes()).hexdigest()!=origin_sha:
                 report["status"]="SOURCE_INTEGRITY_FAILURE"
-            report["source_unchanged"]=run_git(root, "status", "--porcelain") == "?? issue.json"
+            report["source_unchanged"]=run_git(root, "status", "--porcelain") == ""
             if not report["source_unchanged"]:
                 report["status"]="SOURCE_INTEGRITY_FAILURE"
     except Exception as exc:
