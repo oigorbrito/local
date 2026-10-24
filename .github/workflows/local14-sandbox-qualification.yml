@@ -1,0 +1,35 @@
+name: LOCAL-14 actual Docker sandbox qualification
+on:
+  push:
+    branches: [experiment/local14-isolated-patch-gate]
+    paths:
+      - 'experiments/local07/qualify_sandbox.py'
+      - '.github/workflows/local14-sandbox-qualification.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  actual-linux-docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull public probe-only runtime and pin downloaded digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull python:3.12-slim
+          ref="$(docker image inspect python:3.12-slim --format '{{index .RepoDigests 0}}')"
+          [[ "$ref" =~ @sha256:[0-9a-f]{64}$ ]]
+          echo "PROBE_IMAGE=$ref" >> "$GITHUB_ENV"
+          echo "Using digest-pinned image (no candidate code)"
+      - name: Run real isolation probe on runner
+        run: |
+          python3 experiments/local07/qualify_sandbox.py --image "$PROBE_IMAGE" --output "$RUNNER_TEMP/local14-sandbox-qualification.json"
+          python3 - "$RUNNER_TEMP/local14-sandbox-qualification.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert report["qualified"] is True
+          assert report["untrusted_code_executed"] is False
+          print("LOCAL14_LINUX_DOCKER_QUALIFICATION_PASS",report["observed"])
+          PY
