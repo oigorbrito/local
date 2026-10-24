@@ -145,6 +145,14 @@ Para avaliar offline uma resposta JSON preservada, sem inferência:
 python experiments/local07/local16_workflow.py generate --session D:\evidencias\tarefa-001 --offline-response-json D:\evidencias\resposta-anterior.json
 ~~~
 
+No modo live, a sessão consulta a identidade do modelo instalado **antes e
+depois** da geração, usando os hashes de Modelfile/template e o digest
+declarado pela instalação Ollama. Publica native-identity.json somente
+com hashes e estado. check/apply recusam evidências ausentes, incompletas ou
+com drift: um patch gerado não é promovido à aplicação se a identidade do
+modelo não for consistente. No modo de reprodução offline, a sessão não
+atribui a resposta a um modelo e não exige inspeção nativa.
+
 São modos mutuamente alternativos dentro da sessão. A geração bem-sucedida
 grava response.json, report.json e candidate.patch. Reexecutar
 generate na mesma sessão é proibido, para preservar as evidências.
