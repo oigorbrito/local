@@ -1,0 +1,25 @@
+name: LOCAL-16 profile contracts
+on:
+  pull_request:
+    paths:
+      - 'experiments/local07/model_profiles.py'
+      - 'experiments/local07/profile_cli.py'
+      - 'experiments/local07/inspect_profiles.py'
+      - 'experiments/local07/test_model_profiles.py'
+      - '.github/workflows/local16-profiles.yml'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  profile-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile and test
+        run: |
+          python -m compileall -q experiments/local07
+          cd experiments/local07
+          python -m unittest -v test_model_profiles test_executor_bridge test_ollama_adapter
+          python profile_cli.py --list
