@@ -5,12 +5,14 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from unittest.mock import patch
 
 from executor_bridge import ContractError
 from local16_workflow import (
-    REPORT, PATCH, REQUEST, RESPONSE, ISSUE, MANIFEST, NATIVE,
+    REPORT, PATCH, REQUEST, RESPONSE, ISSUE, MANIFEST, NATIVE, ATTEMPT,
     create, load, generate, check, approve, status, tracked_sources,
 )
 from model_profiles import PROFILES
@@ -171,6 +173,58 @@ class WorkflowSessionTests(unittest.TestCase):
         (self.session / NATIVE).unlink()
         with self.assertRaisesRegex(ContractError, "NATIVE_IDENTITY_EVIDENCE_MISSING"):
             check(self.session)
+
+    def test_failed_live_attempt_is_consumed_and_never_auto_retries(self):
+        self.prepared()
+        with patch("profile_cli.generate", side_effect=ContractError("MODEL_TIMEOUT")) as model:
+            with self.assertRaisesRegex(ContractError, "MODEL_TIMEOUT"):
+                generate(self.session, inspector=native_evidence)
+            self.assertEqual(model.call_count, 1)
+        self.assertTrue((self.session / ATTEMPT).is_file())
+        self.assertEqual(status(self.session)["status"], "GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION")
+        with patch("profile_cli.generate") as model:
+            with self.assertRaisesRegex(ContractError, "SESSION_ALREADY_GENERATED"):
+                generate(self.session, inspector=native_evidence)
+            model.assert_not_called()
+
+    def test_concurrent_live_invocations_admit_only_one_model_call(self):
+        self.prepared()
+        barrier = threading.Barrier(2, timeout=20)
+        def inspector(name):
+            if threading.current_thread() != threading.main_thread():
+                # Both workers reach the native preflight before attempting to
+                # reserve the same exclusive generation record.
+                if not hasattr(threading.current_thread(), "already_barriered"):
+                    threading.current_thread().already_barriered = True
+                    barrier.wait()
+            return native_evidence(name)
+        payload = json.dumps(RESPONSE_BODY).encode("utf-8")
+        def worker(_):
+            try:
+                generate(self.session, inspector=inspector)
+                return "PASS"
+            except (ContractError, OSError):
+                return "BLOCKED"
+        with patch("profile_cli.generate", return_value=payload) as model:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = list(pool.map(worker, range(2)))
+        self.assertEqual(sorted(outcomes), ["BLOCKED", "PASS"])
+        self.assertEqual(model.call_count, 1)
+        self.assertEqual(check(self.session)["status"], "PATCH_READY_FOR_REVIEW")
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
+    def test_attempt_manifest_tamper_blocks_review_and_apply(self):
+        self.replayed()
+        attempt_path = self.session / ATTEMPT
+        attempt = json.loads(attempt_path.read_text())
+        attempt["model_call_authorized"] = True
+        attempt_path.write_text(json.dumps(attempt), encoding="utf-8")
+        with self.assertRaisesRegex(ContractError, "SESSION_ATTEMPT_RECORD_MISMATCH"):
+            check(self.session)
+        sha256 = hashlib.sha256((self.session / PATCH).read_bytes()).hexdigest()
+        with self.assertRaises(ContractError):
+            approve(self.session, sha256)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
     def test_context_and_task_evidence_is_frozen_without_inference(self):
         self.prepared("economico")
