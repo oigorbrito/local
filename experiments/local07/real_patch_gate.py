@@ -26,14 +26,17 @@ def verify_patch(patch, allowed):
     if not patch or len(patch) > 256000 or b"\x00" in patch or b"\r" in patch:
         raise GateError("PATCH_UNSAFE_BYTES")
     paths = DIFF.findall(patch)
-    if not paths or len(paths) != 1:
+    if not paths or len(paths) != 1 or patch.count(b"diff --git ") != 1:
         raise GateError("PATCH_MULTIFILE_OR_EMPTY")
     a, b = paths[0]
     try:
         aa, bb = a.decode("utf-8"), b.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise GateError("INVALID_PATH_ENCODING") from exc
-    if aa != bb or aa not in allowed or not aa.endswith(".py"):
+    normalized = pathlib.PurePosixPath(aa)
+    if (aa != bb or aa not in allowed or not aa.endswith(".py") or
+        normalized.is_absolute() or ".." in normalized.parts or
+        normalized.as_posix() != aa):
         raise GateError("PATCH_OUT_OF_SCOPE")
     if (b"GIT binary patch" in patch or b"new file mode" in patch or
         b"deleted file mode" in patch or b"rename from " in patch or
@@ -57,6 +60,10 @@ def grade(repo, issue, patch_file, image=None, test_command=None, run_tests=Fals
         raise GateError("INVALID_ALLOWLIST")
     data = pathlib.Path(patch_file).read_bytes()
     target = verify_patch(data, allowed)
+    source_target = root.joinpath(*pathlib.PurePosixPath(target).parts)
+    if (source_target.is_symlink() or not source_target.is_file() or
+        not source_target.resolve().is_relative_to(root)):
+        raise GateError("INVALID_SOURCE_TARGET")
     result = {"schema":1,"gate":"LOCAL-14","base_commit":issue["base_commit"],
               "patch_sha256":hashlib.sha256(data).hexdigest(),"edited_file":target,
               "patch_applicable":False,"test_status":"NOT_RUN",
