@@ -6,6 +6,8 @@ on:
       - 'experiments/local07/profile_cli.py'
       - 'experiments/local07/inspect_profiles.py'
       - 'experiments/local07/test_model_profiles.py'
+      - 'experiments/local07/test_profile_runtime.py'
+      - 'experiments/local07/ollama_adapter.py'
       - '.github/workflows/local16-profiles.yml'
   workflow_dispatch:
 permissions: {}
@@ -21,5 +23,9 @@ jobs:
         run: |
           python -m compileall -q experiments/local07
           cd experiments/local07
-          python -m unittest -v test_model_profiles test_executor_bridge test_ollama_adapter
+          python -m unittest -v test_model_profiles test_profile_runtime test_executor_bridge test_ollama_adapter test_integrated_edit
           python profile_cli.py --list
+      - name: Refuse unchecked inference policies
+        run: |
+          cd experiments/local07
+          python -c "from model_profiles import PROFILES; assert all(p.version and len(p.fingerprint)==64 for p in PROFILES.values())"
