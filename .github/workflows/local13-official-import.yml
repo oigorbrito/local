@@ -1,0 +1,27 @@
+name: LOCAL-13 official dataset import
+on:
+  push:
+    branches: [experiment/local13-real-issue-gates]
+    paths:
+      - 'experiments/local07/import_lite_cases.py'
+      - '.github/workflows/local13-official-import.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  import:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve three official cases without emitting gold patch
+        run: |
+          python3 experiments/local07/import_lite_cases.py --output-dir "$RUNNER_TEMP/local13-cases"
+          python3 - "$RUNNER_TEMP/local13-cases/manifest.json" <<'PY'
+          import json,sys
+          m=json.load(open(sys.argv[1],encoding="utf-8"))
+          assert len(m["cases"])==3, "not all instances found"
+          for case in m["cases"]:
+              assert len(case["base_commit"])==40
+              print(case["id"], case["split"], case["base_commit"])
+          PY
