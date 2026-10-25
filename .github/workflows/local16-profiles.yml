@@ -35,6 +35,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -46,6 +48,43 @@ jobs:
           cd experiments/local07
           python profile_cli.py --list
           python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_local16_evidence_gate test_reviewed_patch test_local17_real_issue_trial test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit
+      - name: Real pinned LOCAL-17 issue preparation (no inference)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import pathlib
+          import subprocess
+          import sys
+          import tempfile
+          root = pathlib.Path.cwd()
+          runner = root / "experiments" / "local07" / "local17_real_issue_trial.py"
+          from pathlib import Path
+          # Use an actual detached worktree at the preregistered commit,
+          # rather than accepting a mocked Git history or a fabricated fixture.
+          base = "a3e80e82788d798faa1a83b5a99762412cdaf61b"
+          with tempfile.TemporaryDirectory(prefix="local17-real-git-") as tmp:
+              worktree = Path(tmp) / "source"
+              session = Path(tmp) / "session"
+              subprocess.run(["git", "worktree", "add", "--detach", str(worktree), base],
+                             cwd=root, check=True, stdout=subprocess.DEVNULL)
+              try:
+                  p = subprocess.run([sys.executable, str(runner),
+                                      "--repo", str(worktree), "--session", str(session)],
+                                     text=True, capture_output=True, timeout=75)
+                  assert p.returncode == 0, p.stdout + p.stderr
+                  report = json.loads(p.stdout)
+                  assert report["status"] == "REAL_ISSUE_PREPARED"
+                  assert report["inference_calls_attempted"] == 0
+                  assert report["candidate_code_executed"] is False
+                  assert report["retrieval_top_2_contains_target"] is True
+                  assert report["real_issue_resolved"] == "NOT_EVALUATED"
+                  assert (session / "session.json").is_file()
+              finally:
+                  subprocess.run(["git", "worktree", "remove", "--force", str(worktree)],
+                                 cwd=root, check=True, stdout=subprocess.DEVNULL)
+          PY
       - name: Refuse unchecked inference policies
         shell: bash
         run: |
