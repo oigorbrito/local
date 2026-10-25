@@ -38,6 +38,16 @@ class RaisedContract(Exception):
         self.code = code
 
 
+class RawPathArgument:
+    """Opaque string-like CLI input: it is not already a pathlib.Path object."""
+    __slots__ = ("inside", "link", "missing")
+
+    def __init__(self, *, inside=False, link=False, missing=False):
+        self.inside = inside
+        self.link = link
+        self.missing = missing
+
+
 class FakePath:
     """A tiny symbolic model: resolve() dereferences symlinks before checks."""
     __slots__ = ("inside", "link", "missing")
@@ -67,9 +77,11 @@ class ModulePath:
 
     @staticmethod
     def Path(value):
-        if type(value) is not FakePath:
-            raise Unsupported("INVALID_PATH_CONSTRUCTION")
-        return value
+        if type(value) is RawPathArgument:
+            return FakePath(inside=value.inside, link=value.link, missing=value.missing)
+        if type(value) is FakePath:
+            return value
+        raise Unsupported("INVALID_PATH_CONSTRUCTION")
 
 
 def method_call(node, values):
@@ -200,10 +212,10 @@ def assess_source(candidate_source, original_source):
                 "candidate_executed": False}
 
     cases = (
-        ("external_symlink_rejected", FakePath(link=True), "EVIDENCE_SYMLINK_FORBIDDEN"),
-        ("external_file_accepted", FakePath(), "EXTERNAL_PATH"),
-        ("inside_file_rejected", FakePath(inside=True), "EVIDENCE_INSIDE_SOURCE_REPOSITORY"),
-        ("missing_external_path_preserved", FakePath(missing=True), "EXTERNAL_PATH"),
+        ("external_symlink_rejected", RawPathArgument(link=True), "EVIDENCE_SYMLINK_FORBIDDEN"),
+        ("external_file_accepted", RawPathArgument(), "EXTERNAL_PATH"),
+        ("inside_file_rejected", RawPathArgument(inside=True), "EVIDENCE_INSIDE_SOURCE_REPOSITORY"),
+        ("missing_external_path_preserved", RawPathArgument(missing=True), "EXTERNAL_PATH"),
     )
     results = {}
     for name, source_path, expected in cases:
