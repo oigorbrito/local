@@ -72,6 +72,39 @@ modelo; a sessão bloqueia repetição e concorrência. O comando check
 avalia aplicabilidade e integridade do patch, sem executar código
 gerado e sem aplicar qualquer alteração ao repositório.
 
+## Oráculo comportamental independente e limitado (sem executar candidato)
+
+Após a geração, com a variável $session da própria execução já definida,
+o avaliador offline pode inspecionar a resposta JSON e simular
+quatro casos de caminho usando AST + um filesystem simbólico totalmente
+controlado, **sem executar a função proposta**:
+
+~~~powershell
+python "$runner\experiments\local07\local17_static_oracle.py" --session "$session" --output "$session\static-oracle.json"
+~~~
+
+Os quatro casos previamente fixados são: (1) symlink externo recusado
+com EVIDENCE_SYMLINK_FORBIDDEN; (2) arquivo externo comum aceito;
+(3) arquivo dentro da fonte recusado; (4) caminho externo não existente
+mantém comportamento de aceitação. O simulador só aceita operações
+explícitas permitidas (Path, resolve, is_symlink, is_relative_to,
+atribuições, condicionais, raise e return). Nunca importa nem executa
+a fonte gerada. Alterações AST fora da função-alvo ou construções
+não reconhecidas produzem STATIC_ORACLE_INCONCLUSIVE, e não sucesso.
+
+Resultados possíveis:
+- STATIC_BEHAVIOR_CASES_PASS_NOT_RESOLVED — 4/4 cenários no simulador;
+- STATIC_BEHAVIOR_FAIL — comportamento divergente;
+- STATIC_ORACLE_INCONCLUSIVE — construção não suportada ou intervenção
+  fora do alvo, sem suposição de derrota ou de acerto.
+
+Este avaliador não mede correção geral. Mesmo com 4/4,
+issue_resolved permanece NOT_EVALUATED: a validação final precisa de
+um ambiente de execução de candidatos qualificado. O avaliador também
+é usado pela CI para provar que o blob Git original apresenta o defeito
+(symlink externo aceito indevidamente), como controle negativo. O patch
+corretivo não é mostrado ao modelo pela preparação do caso.
+
 **Não executar apply nem testes que importem código gerado no host.**
 Um oráculo independente ainda deve avaliar, em ambiente isolado
 aprovado, pelo menos três comportamentos: link simbólico externo
