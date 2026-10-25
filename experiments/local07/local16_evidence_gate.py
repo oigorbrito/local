@@ -117,6 +117,18 @@ def validate(audit_dir, live_dir):
     for field in ("native_model_digest_sha256", "profile_fingerprint_sha256", "native"):
         require(native.get(field) == results["principal"].get(field),
                 "AUDIT_LIVE_NATIVE_DRIFT")
+    # Old on-host reports recorded only a boolean post-generation check.
+    # Treat those as legacy assertions, never as an independent second read.
+    after = live.get("native_evidence_after")
+    if after is not None:
+        require(native_ok(after, profile), "LIVE_POST_NATIVE_PROFILE_INVALID")
+        for field in ("native_model", "native_model_digest_sha256",
+                      "profile_fingerprint_sha256", "native"):
+            require(native.get(field) == after.get(field),
+                    "LIVE_POST_NATIVE_IDENTITY_DRIFT")
+        post_identity = "SAVED_BEFORE_AFTER_SNAPSHOTS_VERIFIED"
+    else:
+        post_identity = "REPORTED_BY_LOCAL_ACCEPTANCE"
     source_hash = sha(SOURCE.encode("utf-8"))
     require(live.get("fixture_source_sha256") == source_hash,
             "FIXTURE_SOURCE_MISMATCH")
@@ -184,7 +196,7 @@ def validate(audit_dir, live_dir):
         "response_sha256": response_hash,
         "input_report_sha256": {"audit": audit_sha, "live": live_sha,
                                 "adapter": adapter_sha},
-        "model_identity_post_generation": "REPORTED_BY_LOCAL_ACCEPTANCE",
+        "model_identity_post_generation": post_identity,
         "source_integrity": "REPORTED_BY_LOCAL_ACCEPTANCE",
         "candidate_code_executed_by_verifier": False,
         "general_issue_resolution": "NOT_EVALUATED",
