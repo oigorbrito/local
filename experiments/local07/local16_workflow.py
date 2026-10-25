@@ -25,6 +25,7 @@ PATCH = "candidate.patch"
 RESPONSE = "response.json"
 NATIVE = "native-identity.json"
 ATTEMPT = "generation-attempt.json"
+FAILURE = "generation-failure.json"
 MAX_MANIFEST = 1024 * 1024
 REASON = re.compile(r"^[A-Z][A-Z0-9_]{0,95}$")
 
@@ -188,7 +189,7 @@ def native_report(path, manifest, before, after):
 def generate(session, *, offline_response_json=None, timeout=180, inspector=inspect_native):
     path, root, manifest, _, _ = load(session)
     if any((path / key).exists() or (path / key).is_symlink()
-           for key in (REPORT, PATCH, RESPONSE, NATIVE, ATTEMPT)):
+           for key in (REPORT, PATCH, RESPONSE, NATIVE, ATTEMPT, FAILURE)):
         raise ContractError("SESSION_ALREADY_GENERATED")
     response_path = None if offline_response_json is None else pathlib.Path(offline_response_json).resolve()
     if response_path is not None and response_path.is_relative_to(root):
@@ -209,11 +210,37 @@ def generate(session, *, offline_response_json=None, timeout=180, inspector=insp
         "request_sha256": manifest["request_sha256"],
         "mode": mode, "model_call_authorized": response_path is None
     }))])
-    outcome = generate_patch(
-        root, path / ISSUE, manifest["profile"]["name"],
-        path / REPORT, path / PATCH, timeout=timeout,
-        offline_response_json=response_path, response_json_path=path / RESPONSE
-    )
+    phase = "PREPARATION"
+    def record_phase(value):
+        nonlocal phase
+        phase = value
+    try:
+        outcome = generate_patch(
+            root, path / ISSUE, manifest["profile"]["name"],
+            path / REPORT, path / PATCH, timeout=timeout,
+            offline_response_json=response_path, response_json_path=path / RESPONSE,
+            stage_callback=record_phase
+        )
+    except Exception as exc:
+        if isinstance(exc, TimeoutError):
+            category = "TIMEOUT"
+        elif isinstance(exc, ConnectionError):
+            category = "TRANSPORT"
+        elif isinstance(exc, ContractError):
+            category = "CONTRACT"
+        elif isinstance(exc, OSError):
+            category = "IO"
+        else:
+            category = "UNCLASSIFIED"
+        save_outputs([(path / FAILURE, canonical({
+            "schema": 1, "status": "GENERATION_FAILED",
+            "phase": phase, "category": category,
+            "model_delivery_confirmed": False,
+            "model_call_authorized": response_path is None,
+            "profile": manifest["profile"],
+            "request_sha256": manifest["request_sha256"]
+        }))])
+        raise
     if response_path is None:
         try:
             after = inspector(manifest["profile"]["name"])
@@ -305,9 +332,35 @@ def status(session):
         status_value = ("GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION"
                         if (path / ATTEMPT).exists() else "SESSION_PREPARED")
         digest = None
-    return {"status": status_value, "session": str(path),
-            "profile": manifest["profile"], "patch_sha256": digest,
-            "model_invoked_by_status": False}
+    result = {"status": status_value, "session": str(path),
+              "profile": manifest["profile"], "patch_sha256": digest,
+              "model_invoked_by_status": False}
+    if status_value == "GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION":
+        failure_path = path / FAILURE
+        if failure_path.is_symlink():
+            raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID")
+        if failure_path.is_file():
+            try:
+                failure = json.loads(read_bounded(failure_path))
+            except (UnicodeError, ValueError, OSError) as exc:
+                raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID") from exc
+            if (not isinstance(failure, dict) or failure.get("schema") != 1
+                    or failure.get("status") != "GENERATION_FAILED"
+                    or failure.get("profile") != manifest["profile"]
+                    or failure.get("request_sha256") != manifest["request_sha256"]
+                    or failure.get("phase") not in {
+                        "PREPARATION", "MODEL_REQUEST_OR_RESPONSE",
+                        "RESPONSE_VALIDATION", "PERSISTENCE"}
+                    or failure.get("category") not in {
+                        "TIMEOUT", "TRANSPORT", "CONTRACT", "IO", "UNCLASSIFIED"}
+                    or failure.get("model_delivery_confirmed") is not False
+                    or failure.get("model_call_authorized") is not (
+                        json.loads(read_bounded(path / ATTEMPT)).get("model_call_authorized")
+                    )):
+                raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID")
+            result["failure"] = {"phase": failure["phase"], "category": failure["category"],
+                                 "model_delivery_confirmed": False}
+    return result
 
 
 def main():
