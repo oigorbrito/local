@@ -75,6 +75,8 @@ class ModulePath:
 def method_call(node, values):
     if node.keywords:
         raise Unsupported("KEYWORD_CALL_UNSUPPORTED")
+    if isinstance(node.func, ast.Name) and node.func.id == "Path" and len(node.args) == 1:
+        return ModulePath.Path(expression(node.args[0], values))
     if not isinstance(node.func, ast.Attribute) or node.func.attr.startswith("_"):
         raise Unsupported("CALL_NOT_ALLOWED")
     obj = expression(node.func.value, values)
