@@ -75,7 +75,7 @@ class NativeEvidenceGate(unittest.TestCase):
         self.assertEqual(report["model_policy_fingerprint_sha256"],
                          PROFILES["principal"].fingerprint)
         self.assertEqual(report["general_issue_resolution"], "NOT_EVALUATED")
-        self.assertEqual(report["model_identity_post_generation"], "REPORTED_BY_LOCAL_ACCEPTANCE")
+        self.assertEqual(report["model_identity_post_generation"], "SAVED_BEFORE_AFTER_SNAPSHOTS_VERIFIED")
         self.assertFalse(report["candidate_code_executed_by_verifier"])
         self.assertEqual(report["patch_sha256"],
                          hashlib.sha256((self.live / "candidate.patch").read_bytes()).hexdigest())
@@ -125,6 +125,35 @@ class NativeEvidenceGate(unittest.TestCase):
         self.modify("local16-acceptance.json",
                     lambda x: x.pop("native_post_generation_verified"))
         with self.assertRaisesRegex(EvidenceError, "LIVE_GATE_INVARIANTS_MISMATCH"):
+            validate(self.audit, self.live)
+
+    def test_legacy_user_report_without_second_snapshot_remains_qualified(self):
+        # 2026-10-24 Windows report predates snapshot persistence.
+        self.modify("local16-acceptance.json",
+                    lambda x: x.pop("native_evidence_after", None))
+        result = validate(self.audit, self.live)
+        self.assertEqual(result["status"], "WINDOWS_FIXTURE_EVIDENCE_CONSISTENT")
+        self.assertEqual(result["model_identity_post_generation"],
+                         "REPORTED_BY_LOCAL_ACCEPTANCE")
+
+    def test_saved_second_snapshot_must_match_original_digest(self):
+        self.modify("local16-acceptance.json",
+                    lambda x: x["native_evidence_after"].update(
+                        native_model_digest_sha256="0" * 64))
+        with self.assertRaisesRegex(EvidenceError, "LIVE_POST_NATIVE_IDENTITY_DRIFT"):
+            validate(self.audit, self.live)
+
+    def test_saved_second_snapshot_must_match_native_template(self):
+        self.modify("local16-acceptance.json",
+                    lambda x: x["native_evidence_after"]["native"].update(
+                        template_sha256="0" * 64))
+        with self.assertRaisesRegex(EvidenceError, "LIVE_POST_NATIVE_IDENTITY_DRIFT"):
+            validate(self.audit, self.live)
+
+    def test_second_snapshot_with_wrong_profile_is_rejected(self):
+        self.modify("local16-acceptance.json",
+                    lambda x: x["native_evidence_after"].update(profile="alternativo"))
+        with self.assertRaisesRegex(EvidenceError, "LIVE_POST_NATIVE_PROFILE_INVALID"):
             validate(self.audit, self.live)
 
     def test_audit_live_model_digest_mismatch_is_rejected(self):
