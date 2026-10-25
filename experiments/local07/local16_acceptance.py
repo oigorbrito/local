@@ -203,6 +203,9 @@ def acceptance(output_dir, *, mode="audit", profile_name="principal",
                             try:
                                 after = auditor(profile_name)
                                 before = record["native_evidence"]
+                                # Keep the sanitized second snapshot: a simple boolean
+                                # alone cannot independently establish identity continuity.
+                                record["native_evidence_after"] = after
                                 identity = ("native_model", "native_model_digest_sha256",
                                             "profile_fingerprint_sha256", "native")
                                 if after.get("status") != "INSPECTED_NOT_GRADED" or any(
