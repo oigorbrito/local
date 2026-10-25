@@ -33,9 +33,9 @@ Assert-True (Test-Path -LiteralPath $TaskFile -PathType Leaf) 'TASK_FILE_NOT_FOU
 Assert-True (Test-Path -LiteralPath $IssueRepo -PathType Container) 'ISSUE_REPO_NOT_FOUND'
 Assert-True ($TimeoutSeconds -ge 1 -and $TimeoutSeconds -le 420) 'INVALID_TIMEOUT'
 $expected = 'a3e80e82788d798faa1a83b5a99762412cdaf61b'
-$head = Invoke-Git @('rev-parse','HEAD')
+$head = Invoke-Git -gitArgs @('rev-parse','HEAD')
 Assert-True ($head -eq $expected) 'FROZEN_ISSUE_COMMIT_DRIFT'
-$dirty = Invoke-Git @('status','--porcelain')
+$dirty = Invoke-Git -gitArgs @('status','--porcelain')
 Assert-True ([string]::IsNullOrEmpty($dirty)) 'FROZEN_ISSUE_WORKTREE_DIRTY'
 Assert-True (-not (Test-Path -LiteralPath $Session)) 'SESSION_ALREADY_EXISTS_NO_RETRY'
 $parent = Split-Path -Parent $Session
@@ -47,19 +47,19 @@ if (-not $AuthorizeOneModelCall) {
     Write-Output '{"status":"PREFLIGHT_ONLY","inference_calls_attempted":0}'
     exit 0
 }
-$created = Invoke-Workflow @('new','--repo',$IssueRepo,'--session',$Session,'--profile','principal','--task-file',$TaskFile)
+$created = Invoke-Workflow -workflowArgs @('new','--repo',$IssueRepo,'--session',$Session,'--profile','principal','--task-file',$TaskFile)
 Assert-True ($created.ExitCode -eq 0 -and $created.Result.status -eq 'SESSION_PREPARED') 'SESSION_CREATION_FAILED'
 # Exactly one explicit generate invocation. Never retry on failure.
-$generation = Invoke-Workflow @('generate','--session',$Session,'--timeout',"$TimeoutSeconds")
-$observed = Invoke-Workflow @('status','--session',$Session)
+$generation = Invoke-Workflow -workflowArgs @('generate','--session',$Session,'--timeout',"$TimeoutSeconds")
+$observed = Invoke-Workflow -workflowArgs @('status','--session',$Session)
 $summary = [ordered]@{
     gate='LOCAL17_ONE_SHOT_RESULT'
     generate_exit_code=$generation.ExitCode
     generation=$generation.Result
     status=$observed.Result
     session=$Session
-    source_commit_after=(Invoke-Git @('rev-parse','HEAD'))
-    source_dirty_after=(Invoke-Git @('status','--porcelain'))
+    source_commit_after=(Invoke-Git -gitArgs @('rev-parse','HEAD'))
+    source_dirty_after=(Invoke-Git -gitArgs @('status','--porcelain'))
     no_automatic_retry=$true
     no_patch_application=$true
 }
