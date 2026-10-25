@@ -17,9 +17,10 @@ def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180, syste
     if not isinstance(model, str) or not model or len(model) > 128 or any(c.isspace() for c in model):
         raise ContractError("INVALID_MODEL_IDENTIFIER")
     prompt = (
-        "Produce ONLY a JSON object with exactly keys schema (integer 1), file "
-        "(one allowed path), and content (complete modified Python source). "
-        "Never return markdown, shell commands, or explanation.\n"
+        "Return ONLY JSON with schema=2, file (one allowed path), old (exact unique "
+        "source excerpt), new (replacement excerpt), and source_sha256 (SHA-256 of "
+        "the entire original file bytes). Make the smallest possible edit. "
+        "Do not return the complete file, markdown, or explanations.\n"
         + json.dumps(request.to_json(), ensure_ascii=False)
     )
     default_options = {"temperature": 0, "num_ctx": 4096, "num_predict": 2048}
@@ -35,11 +36,13 @@ def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180, syste
         raise ContractError("INVALID_SYSTEM_INSTRUCTION")
     response_schema = {
         "type": "object", "additionalProperties": False,
-        "required": ["schema", "file", "content"],
+        "required": ["schema", "file", "old", "new", "source_sha256"],
         "properties": {
-            "schema": {"type": "integer", "enum": [1]},
+            "schema": {"type": "integer", "enum": [2]},
             "file": {"type": "string", "enum": list(request.selected_files)},
-            "content": {"type": "string"}
+            "old": {"type": "string"},
+            "new": {"type": "string"},
+            "source_sha256": {"type": "string"}
         }
     }
     body_obj = {
