@@ -10,6 +10,8 @@ on:
       - 'experiments/local07/ollama_adapter.py'
       - 'experiments/local07/local16_acceptance.py'
       - 'experiments/local07/test_local16_acceptance.py'
+      - 'experiments/local07/local16_evidence_gate.py'
+      - 'experiments/local07/test_local16_evidence_gate.py'
       - 'experiments/local07/reviewed_patch.py'
       - 'experiments/local07/test_reviewed_patch.py'
       - 'experiments/local07/local16_workflow.py'
@@ -40,7 +42,7 @@ jobs:
           python -m compileall -q experiments/local07
           cd experiments/local07
           python profile_cli.py --list
-          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_reviewed_patch test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit
+          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_local16_evidence_gate test_reviewed_patch test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit
       - name: Refuse unchecked inference policies
         shell: bash
         run: |
