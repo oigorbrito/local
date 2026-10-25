@@ -114,6 +114,15 @@ class StaticBehaviorTests(unittest.TestCase):
         self.assertEqual(result["status"], "STATIC_ORACLE_INCONCLUSIVE")
         self.assertFalse(result["candidate_executed"])
 
+    def test_direct_symlink_method_on_raw_string_is_not_falsely_accepted(self):
+        # CLI passes report/patch filenames as strings, not guaranteed Path objects.
+        # Invoking path.is_symlink() on that raw argument is invalid Python behavior.
+        candidate = CORRECT.replace("    original = pathlib.Path(path)\n",
+                                     "    original = path\n")
+        result = assess_source(candidate, ORIGINAL)
+        self.assertEqual(result["status"], "STATIC_ORACLE_INCONCLUSIVE")
+        self.assertEqual(result["reason"], "CALL_NOT_ALLOWED")
+
     def test_syntax_error_is_inconclusive_not_solved(self):
         result = assess_source("def broken(", ORIGINAL)
         self.assertEqual(result["status"], "STATIC_ORACLE_INCONCLUSIVE")
