@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from executor_bridge import ContractError
 from local16_workflow import (
-    REPORT, PATCH, REQUEST, RESPONSE, ISSUE, MANIFEST, NATIVE, ATTEMPT,
+    REPORT, PATCH, REQUEST, RESPONSE, ISSUE, MANIFEST, NATIVE, ATTEMPT, FAILURE,
     create, load, generate, check, approve, status, tracked_sources,
 )
 from model_profiles import PROFILES
@@ -186,6 +186,32 @@ class WorkflowSessionTests(unittest.TestCase):
             with self.assertRaisesRegex(ContractError, "SESSION_ALREADY_GENERATED"):
                 generate(self.session, inspector=native_evidence)
             model.assert_not_called()
+
+    def test_failure_evidence_sanitized_and_no_retry(self):
+        self.prepared()
+        with patch("profile_cli.generate", side_effect=TimeoutError("SECRET_PROMPT")) as model:
+            with self.assertRaises(TimeoutError):
+                generate(self.session, inspector=native_evidence)
+            model.assert_called_once()
+        evidence = json.loads((self.session / FAILURE).read_text())
+        self.assertEqual(evidence["phase"], "MODEL_REQUEST_OR_RESPONSE")
+        self.assertEqual(evidence["category"], "TIMEOUT")
+        self.assertFalse(evidence["model_delivery_confirmed"])
+        self.assertNotIn("SECRET_PROMPT", (self.session / FAILURE).read_text())
+        with patch("profile_cli.generate") as second:
+            with self.assertRaisesRegex(ContractError, "SESSION_ALREADY_GENERATED"):
+                generate(self.session, inspector=native_evidence)
+            second.assert_not_called()
+
+    def test_validation_failure_stage(self):
+        self.prepared()
+        with patch("profile_cli.generate", return_value=b'{"schema":3}') as model:
+            with self.assertRaises(ContractError):
+                generate(self.session, inspector=native_evidence)
+            model.assert_called_once()
+        evidence = json.loads((self.session / FAILURE).read_text())
+        self.assertEqual(evidence["phase"], "RESPONSE_VALIDATION")
+        self.assertEqual(evidence["category"], "CONTRACT")
 
     def test_concurrent_live_invocations_admit_only_one_model_call(self):
         self.prepared()
