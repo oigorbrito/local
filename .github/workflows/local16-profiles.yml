@@ -20,6 +20,7 @@ on:
       - 'experiments/local07/fixture_functional_grade.py'
       - 'experiments/local07/windows_runtime_smoke.py'
       - 'docs/LOCAL-16-MODEL-PROFILES.md'
+      - 'docs/LOCAL-16-WINDOWS-QUALIFICATION.md'
       - '.github/workflows/local16-profiles.yml'
   workflow_dispatch:
 permissions: {}
