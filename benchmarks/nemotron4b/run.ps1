@@ -28,7 +28,8 @@ $dockerArgs = @(
   "--cap-drop","ALL","--security-opt","no-new-privileges",
   "--pids-limit","128","--memory","3g","--cpus","2",
   "--tmpfs","/tmp:rw,exec,nosuid,size=512m",
-  "--mount","type=bind,source=$repo,target=/app,readonly",
+  "--mount","type=bind,source=$dir,target=/app/benchmarks/nemotron4b,readonly",
+  "--mount","type=bind,source=$(Join-Path $repo 'experiments\\local07'),target=/app/experiments/local07,readonly",
   "--mount","type=bind,source=$results,target=/results",
   $image,"--model",$Model,"--repeats",$Repeats,"--timeout",$TimeoutSeconds
 )
