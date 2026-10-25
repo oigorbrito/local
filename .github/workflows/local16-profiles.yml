@@ -18,6 +18,8 @@ on:
       - 'experiments/local07/test_local16_workflow.py'
       - 'experiments/local07/local17_real_issue_trial.py'
       - 'experiments/local07/test_local17_real_issue_trial.py'
+      - 'experiments/local07/local17_static_oracle.py'
+      - 'experiments/local07/test_local17_static_oracle.py'
       - 'experiments/local07/static_patch_gate.py'
       - 'experiments/local07/fixture_functional_grade.py'
       - 'experiments/local07/windows_runtime_smoke.py'
@@ -48,7 +50,7 @@ jobs:
           python -m compileall -q experiments/local07
           cd experiments/local07
           python profile_cli.py --list
-          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_local16_evidence_gate test_reviewed_patch test_local17_real_issue_trial test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit
+          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_local16_evidence_gate test_reviewed_patch test_local17_real_issue_trial test_local17_static_oracle test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit
       - name: Real pinned LOCAL-17 issue preparation (no inference)
         shell: bash
         run: |
@@ -82,6 +84,15 @@ jobs:
                   assert report["retrieval_top_2_contains_target"] is True
                   assert report["real_issue_resolved"] == "NOT_EVALUATED"
                   assert (session / "session.json").is_file()
+                  # Independent negative control from actual pinned Git blob.
+                  sys.path.insert(0, str(root / "experiments" / "local07"))
+                  from local17_static_oracle import assess_source
+                  pinned = worktree / "experiments" / "local07" / "reviewed_patch.py"
+                  original = pinned.read_text(encoding="utf-8")
+                  control = assess_source(original, original)
+                  assert control["status"] == "STATIC_BEHAVIOR_FAIL", control
+                  assert control["passed"] == 3, control
+                  assert control["cases"]["external_symlink_rejected"]["observed"] == "EXTERNAL_PATH"
               finally:
                   subprocess.run(["git", "worktree", "remove", "--force", str(worktree)],
                                  cwd=root, check=True, stdout=subprocess.DEVNULL)
