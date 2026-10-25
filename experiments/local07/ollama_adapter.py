@@ -33,8 +33,17 @@ def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180, syste
         not isinstance(system, str) or not system.strip() or len(system) > 4096
     ):
         raise ContractError("INVALID_SYSTEM_INSTRUCTION")
+    response_schema = {
+        "type": "object", "additionalProperties": False,
+        "required": ["schema", "file", "content"],
+        "properties": {
+            "schema": {"type": "integer", "enum": [1]},
+            "file": {"type": "string", "enum": list(request.selected_files)},
+            "content": {"type": "string"}
+        }
+    }
     body_obj = {
-        "model": model, "stream": False, "format": "json",
+        "model": model, "stream": False, "format": response_schema,
         "options": default_options, "prompt": prompt
     }
     if system is not None:
@@ -61,6 +70,10 @@ def generate(request, model, *, host="127.0.0.1", port=11434, timeout=180, syste
         outer = json.loads(blob.decode("utf-8"))
         if not isinstance(outer, dict) or not isinstance(outer.get("response"), str):
             raise ContractError("OLLAMA_SCHEMA_MISMATCH")
+        if outer.get("done") is not True:
+            raise ContractError("OLLAMA_INCOMPLETE_RESPONSE")
+        if outer.get("done_reason") == "length":
+            raise ContractError("OLLAMA_OUTPUT_TOKEN_LIMIT")
         payload = outer["response"].encode("utf-8")
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise ContractError("OLLAMA_INVALID_JSON") from exc
