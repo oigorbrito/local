@@ -1,4 +1,4 @@
-"""LOCAL-09: fail-closed executor protocol, no autonomous model invocation.
+"""LOCAL-18: bounded localized edits and legacy full-source replay.
 
 External providers produce JSON {schema:1, file:<allowlisted>, content:<full Python source>}.
 The bridge never evaluates the generated source in-process. It passes it to the
@@ -7,6 +7,7 @@ LOCAL-07 isolated patch validator. A file-backed adapter makes replay reproducib
 import argparse
 import json
 import pathlib
+import hashlib
 import sys
 from dataclasses import dataclass
 
@@ -16,6 +17,7 @@ from retrieve_context import retrieve
 MAX_RESPONSE_BYTES = 256 * 1024
 MAX_SOURCE_CHARS = 160_000
 MAX_ISSUE_CHARS = 32_000
+MAX_EDIT_CHARS = 8192
 
 
 class ContractError(ValueError):
@@ -53,6 +55,18 @@ def parse_response(payload, allowed_files):
         raw = json.loads(payload.decode("utf-8"))
     except (UnicodeError, json.JSONDecodeError) as e:
         raise ContractError("INVALID_JSON") from e
+    if isinstance(raw, dict) and raw.get("schema") == 2:
+        if set(raw) != {"schema", "file", "old", "new", "source_sha256"} or type(raw["schema"]) is not int:
+            raise ContractError("SCHEMA_MISMATCH")
+        if not isinstance(raw["file"], str) or raw["file"] not in allowed_files:
+            raise ContractError("FILE_NOT_ALLOWED")
+        if any(not isinstance(raw[k], str) for k in ("old", "new", "source_sha256")):
+            raise ContractError("INVALID_EDIT")
+        if not raw["old"] or len(raw["old"]) > MAX_EDIT_CHARS or len(raw["new"]) > MAX_EDIT_CHARS:
+            raise ContractError("INVALID_EDIT")
+        if len(raw["source_sha256"]) != 64 or any(c not in "0123456789abcdef" for c in raw["source_sha256"]):
+            raise ContractError("INVALID_SOURCE_DIGEST")
+        return raw["file"], raw
     if not isinstance(raw, dict) or set(raw) != {"schema", "file", "content"} or type(raw["schema"]) is not int or raw["schema"] != 1:
         raise ContractError("SCHEMA_MISMATCH")
     if not isinstance(raw["file"], str) or raw["file"] not in allowed_files:
@@ -65,6 +79,21 @@ def parse_response(payload, allowed_files):
 def replay(repo, issue, response_bytes):
     request = prepare(repo, issue)
     path, source = parse_response(response_bytes, request.selected_files)
+    if isinstance(source, dict):
+        root = pathlib.Path(repo).resolve()
+        target = root.joinpath(*pathlib.PurePosixPath(path).parts)
+        if target.is_symlink() or not target.is_file() or not target.resolve().is_relative_to(root):
+            raise ContractError("INVALID_TARGET")
+        original = target.read_bytes()
+        if hashlib.sha256(original).hexdigest() != source["source_sha256"]:
+            raise ContractError("SOURCE_BLOB_MISMATCH")
+        try:
+            content = original.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ContractError("INVALID_SOURCE_ENCODING") from exc
+        if content.count(source["old"]) != 1:
+            raise ContractError("EDIT_ANCHOR_NOT_UNIQUE")
+        source = content.replace(source["old"], source["new"], 1)
     report, patch = assess(repo, issue, path, source, max_files=2)
     return {"schema": 1, "status": report["result"],
             "request": request.to_json(), "validation": report}, patch
