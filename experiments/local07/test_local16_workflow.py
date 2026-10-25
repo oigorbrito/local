@@ -198,10 +198,26 @@ class WorkflowSessionTests(unittest.TestCase):
         self.assertEqual(evidence["category"], "TIMEOUT")
         self.assertFalse(evidence["model_delivery_confirmed"])
         self.assertNotIn("SECRET_PROMPT", (self.session / FAILURE).read_text())
+        observed = status(self.session)
+        self.assertEqual(observed["failure"]["phase"], "MODEL_REQUEST_OR_RESPONSE")
+        self.assertEqual(observed["failure"]["category"], "TIMEOUT")
+        self.assertFalse(observed["failure"]["model_delivery_confirmed"])
         with patch("profile_cli.generate") as second:
             with self.assertRaisesRegex(ContractError, "SESSION_ALREADY_GENERATED"):
                 generate(self.session, inspector=native_evidence)
             second.assert_not_called()
+
+    def test_tampered_failure_evidence_is_rejected(self):
+        self.prepared()
+        with patch("profile_cli.generate", side_effect=TimeoutError("timeout")):
+            with self.assertRaises(TimeoutError):
+                generate(self.session, inspector=native_evidence)
+        path = self.session / FAILURE
+        evidence = json.loads(path.read_text())
+        evidence["request_sha256"] = "0" * 64
+        path.write_text(json.dumps(evidence), encoding="utf-8")
+        with self.assertRaisesRegex(ContractError, "SESSION_FAILURE_EVIDENCE_INVALID"):
+            status(self.session)
 
     def test_validation_failure_stage(self):
         self.prepared()
