@@ -59,7 +59,12 @@ def save_outputs(payloads):
 
 
 def run(repo, issue_json, profile_name, report_path, patch_path, *,
-        timeout=180, offline_response_json=None, response_json_path=None):
+        timeout=180, offline_response_json=None, response_json_path=None,
+        stage_callback=None):
+    def stage(value):
+        if stage_callback is not None:
+            stage_callback(value)
+    stage('PREPARATION')
     if type(timeout) is not int or not 1 <= timeout <= 420:
         raise ContractError("INVALID_TIMEOUT")
     profile = select_profile(profile_name)
@@ -72,6 +77,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     issue = json.loads(pathlib.Path(issue_json).read_text(encoding="utf-8"))["problem_statement"]
     request = prepare(repo, issue)
     if offline_response_json is None:
+        stage('MODEL_REQUEST_OR_RESPONSE')
         payload = generate(
             request, profile.base_model, timeout=timeout,
             system=profile.system, options=profile.options
@@ -81,6 +87,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         with pathlib.Path(offline_response_json).open("rb") as stream:
             payload = stream.read(MAX_RESPONSE_BYTES + 1)
         mode = "offline_replay"
+    stage('RESPONSE_VALIDATION')
     if before != provenance(repo):
         raise ContractError("SOURCE_CHANGED_DURING_GENERATION")
     validation, patch = replay(repo, issue, payload)
@@ -96,6 +103,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     ]
     if response_json_path is not None:
         artifacts.append((response_json_path, payload))
+    stage('PERSISTENCE')
     save_outputs(artifacts)
     return validation
 
