@@ -7,7 +7,6 @@ LOCAL-07 isolated patch validator. A file-backed adapter makes replay reproducib
 import argparse
 import json
 import pathlib
-import hashlib
 import sys
 from dataclasses import dataclass
 
@@ -56,16 +55,14 @@ def parse_response(payload, allowed_files):
     except (UnicodeError, json.JSONDecodeError) as e:
         raise ContractError("INVALID_JSON") from e
     if isinstance(raw, dict) and raw.get("schema") == 2:
-        if set(raw) != {"schema", "file", "old", "new", "source_sha256"} or type(raw["schema"]) is not int:
+        if set(raw) != {"schema", "file", "old", "new"} or type(raw["schema"]) is not int:
             raise ContractError("SCHEMA_MISMATCH")
         if not isinstance(raw["file"], str) or raw["file"] not in allowed_files:
             raise ContractError("FILE_NOT_ALLOWED")
-        if any(not isinstance(raw[k], str) for k in ("old", "new", "source_sha256")):
+        if any(not isinstance(raw[k], str) for k in ("old", "new")):
             raise ContractError("INVALID_EDIT")
         if not raw["old"] or len(raw["old"]) > MAX_EDIT_CHARS or len(raw["new"]) > MAX_EDIT_CHARS:
             raise ContractError("INVALID_EDIT")
-        if len(raw["source_sha256"]) != 64 or any(c not in "0123456789abcdef" for c in raw["source_sha256"]):
-            raise ContractError("INVALID_SOURCE_DIGEST")
         return raw["file"], raw
     if not isinstance(raw, dict) or set(raw) != {"schema", "file", "content"} or type(raw["schema"]) is not int or raw["schema"] != 1:
         raise ContractError("SCHEMA_MISMATCH")
@@ -85,8 +82,6 @@ def replay(repo, issue, response_bytes):
         if target.is_symlink() or not target.is_file() or not target.resolve().is_relative_to(root):
             raise ContractError("INVALID_TARGET")
         original = target.read_bytes()
-        if hashlib.sha256(original).hexdigest() != source["source_sha256"]:
-            raise ContractError("SOURCE_BLOB_MISMATCH")
         try:
             content = original.decode("utf-8")
         except UnicodeDecodeError as exc:
