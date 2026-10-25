@@ -332,9 +332,35 @@ def status(session):
         status_value = ("GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION"
                         if (path / ATTEMPT).exists() else "SESSION_PREPARED")
         digest = None
-    return {"status": status_value, "session": str(path),
-            "profile": manifest["profile"], "patch_sha256": digest,
-            "model_invoked_by_status": False}
+    result = {"status": status_value, "session": str(path),
+              "profile": manifest["profile"], "patch_sha256": digest,
+              "model_invoked_by_status": False}
+    if status_value == "GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION":
+        failure_path = path / FAILURE
+        if failure_path.is_symlink():
+            raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID")
+        if failure_path.is_file():
+            try:
+                failure = json.loads(read_bounded(failure_path))
+            except (UnicodeError, ValueError, OSError) as exc:
+                raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID") from exc
+            if (not isinstance(failure, dict) or failure.get("schema") != 1
+                    or failure.get("status") != "GENERATION_FAILED"
+                    or failure.get("profile") != manifest["profile"]
+                    or failure.get("request_sha256") != manifest["request_sha256"]
+                    or failure.get("phase") not in {
+                        "PREPARATION", "MODEL_REQUEST_OR_RESPONSE",
+                        "RESPONSE_VALIDATION", "PERSISTENCE"}
+                    or failure.get("category") not in {
+                        "TIMEOUT", "TRANSPORT", "CONTRACT", "IO", "UNCLASSIFIED"}
+                    or failure.get("model_delivery_confirmed") is not False
+                    or failure.get("model_call_authorized") is not (
+                        json.loads(read_bounded(path / ATTEMPT)).get("model_call_authorized")
+                    )):
+                raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID")
+            result["failure"] = {"phase": failure["phase"], "category": failure["category"],
+                                 "model_delivery_confirmed": False}
+    return result
 
 
 def main():
