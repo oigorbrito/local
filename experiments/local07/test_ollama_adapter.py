@@ -35,13 +35,13 @@ class OllamaAdapterGate(unittest.TestCase):
         self.payload = json.dumps({"schema": 1, "file": "calculator.py", "content": "def calculate(x):\n    return x+2\n"})
     
     def test_mocked_protocol_and_bounded_generation(self):
-        transport = FakeConnection(FakeResponse(json.dumps({"response": self.payload}).encode()))
+        transport = FakeConnection(FakeResponse(json.dumps({"response": self.payload, "done": True}).encode()))
         with patch("ollama_adapter.http.client.HTTPConnection", return_value=transport) as factory:
             response = generate(self.request, "nemotron-3-nano:4b")
         self.assertEqual(parse_response(response, ("calculator.py",))[0], "calculator.py")
         self.assertEqual(transport.sent[0:2], ("POST", "/api/generate"))
         self.assertFalse(transport.sent[2]["stream"])
-        self.assertEqual(transport.sent[2]["format"], "json")
+        self.assertEqual(transport.sent[2]["format"]["properties"]["file"]["enum"], ["calculator.py"])
         factory.assert_called_once_with("127.0.0.1", 11434, timeout=180)
 
     def test_fail_closed_transport(self):
