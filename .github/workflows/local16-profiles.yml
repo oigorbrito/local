@@ -16,6 +16,11 @@ on:
       - 'experiments/local07/test_reviewed_patch.py'
       - 'experiments/local07/local16_workflow.py'
       - 'experiments/local07/test_local16_workflow.py'
+      - 'experiments/local07/local20_pipeline.py'
+      - 'experiments/local07/test_local20_pipeline.py'
+      - 'experiments/local07/test_local20_preregistered_case.py'
+      - 'experiments/local07/run_local20_windows.ps1'
+      - 'experiments/local07/cases/anchor-reasons-002.txt'
       - 'experiments/local07/local17_real_issue_trial.py'
       - 'experiments/local07/test_local17_real_issue_trial.py'
       - 'experiments/local07/local17_static_oracle.py'
@@ -43,6 +48,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Parse LOCAL-20 Windows launcher without executing it
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $file = Join-Path $PWD 'experiments/local07/run_local20_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
       - name: Compile and test
         shell: bash
         run: |
@@ -50,7 +66,7 @@ jobs:
           python -m compileall -q experiments/local07
           cd experiments/local07
           python profile_cli.py --list
-          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_local16_evidence_gate test_reviewed_patch test_local17_real_issue_trial test_local17_static_oracle test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit
+          python -m unittest -v test_model_profiles test_profile_runtime test_local16_acceptance test_local16_evidence_gate test_reviewed_patch test_local17_real_issue_trial test_local17_static_oracle test_local16_workflow test_executor_bridge test_ollama_adapter test_integrated_edit test_local20_pipeline test_local20_preregistered_case
       - name: Real pinned LOCAL-17 issue preparation (no inference)
         shell: bash
         run: |
