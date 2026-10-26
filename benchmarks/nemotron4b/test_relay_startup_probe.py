@@ -93,14 +93,15 @@ class FullStartupProbeTests(unittest.TestCase):
     def test_http_trace_retains_only_route_and_event_metadata(self):
         observed = ("STARTUP_TRACE " + json.dumps({
             "event": "request_created", "route": "/api/show",
-            "ms": 157, "index": 1, "private_extra": "SECRET_MODEL_BYTES"
+            "ms": 157, "request_id": 1, "private_extra": "SECRET_MODEL_BYTES"
         }) + "\n" + "Model call failed: DIAGNOSTIC_GENERATION_BLOCKED")
         code, report = self.execute(
             db_present=True, code=1, timed_out=False, text=observed)
         self.assertEqual(code, 0)
         self.assertEqual(report["startup"]["request_trace"][0],
                          {"event": "request_created", "route": "/api/show",
-                          "ms": 157, "detail": None})
+                          "ms": 157, "request_id": 1, "status": None,
+                          "error_name": None, "error_code": None})
         self.assertNotIn("SECRET_MODEL_BYTES", json.dumps(report))
 
     def test_timed_out_cli_is_always_blocked(self):
