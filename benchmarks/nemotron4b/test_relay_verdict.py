@@ -48,6 +48,19 @@ class VerdictTests(unittest.TestCase):
             "timeout": False, "stderr": "Cannot reach Ollama at http://127.0.0.1:11434", "code": 1,
         }), "OLLAMA_UNREACHABLE")
 
+    def test_alternating_order_preserves_equal_exposure(self):
+        for first in ("cloi", "local09"):
+            order = [compare.order_for_repeat(i, first) for i in range(1, 6)]
+            self.assertEqual(order[0][0], first)
+            for i, pair in enumerate(order):
+                self.assertEqual(set(pair), {"cloi", "local09"})
+                if i:
+                    self.assertEqual(pair, tuple(reversed(order[i - 1])))
+            self.assertEqual(sum(pair.count("cloi") for pair in order), 5)
+            self.assertEqual(sum(pair.count("local09") for pair in order), 5)
+        with self.assertRaises(ValueError):
+            compare.order_for_repeat(1, "unknown")
+
     def test_patch_rejection_is_not_mistaken_for_transport_failure(self):
         self.assertIsNone(compare.infrastructure_failure({
             "timeout": False,
