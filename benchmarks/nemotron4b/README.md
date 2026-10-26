@@ -160,3 +160,38 @@ não velocidade de resolução. Em `relay-request-metrics.jsonl`, verificar
 `usage_available` e as respostas brutas por SHA-256 para distinguir
 um HTTP 200 de geração efetivamente concluída. Não escolher vencedor
 a partir de uma única fixture.
+
+
+## Cloi-first real: timeout após 420,175 s
+
+Rodada real iniciada em 26/10/2026 com `-FirstExecutor cloi -Repeats 3`
+e resultados em
+`D:\projetos\local-nemotron-cloi-20261026-010735`.
+A tentativa `r01-cloi` atingiu 420,175 segundos e foi encerrada por
+`EXECUTOR_WALL_TIMEOUT`, sem patch aprovado. A política fail-closed
+interrompeu a matriz; LOCAL-09 não foi executado nessa rodada.
+A ordem inicial agora descarta a explicação de que Cloi só falhava
+por ter sido executado depois de LOCAL-09. A causa exata do timeout
+ainda não foi estabelecida: pode envolver geração, transporte ou loop
+do executor; o relógio de 420 s, sozinho, não permite distinguir.
+
+Para diagnosticar **sem GPU e sem Docker**, depois de atualizar a
+branch, execute em PowerShell:
+
+    python -B .\benchmarks\nemotron4b\diagnose.py --results "D:\projetos\local-nemotron-cloi-20261026-010735"
+
+O comando imprime somente estados, contagens, hashes, latências e
+integridade de respostas brutas, sem divulgar o texto dos prompts,
+código gerado ou conteúdo das respostas. As execuções antigas não
+registravam o início de cada requisição: se uma thread do relay
+continuava pendente ao fechar o contêiner, **não há como inferir seu
+endpoint apenas pela ausência da métrica final**. A partir da
+instrumentação atual, o host grava também
+`relay-request-starts.jsonl` antes de iniciar cada worker e
+`diagnose.py` relaciona requisições iniciadas às finalizadas.
+O arquivo de eventos não contém corpo de requisição nem prompts.
+
+O ensaio original `r01-local09`, preservado em dois diretórios,
+produziu um único patch de 954 bytes, cujo replay final no Windows
+foi `ACCEPTED` e passou 6/6 testes independentes. Essa evidência
+é separada da rodada Cloi-first bloqueada por tempo.
