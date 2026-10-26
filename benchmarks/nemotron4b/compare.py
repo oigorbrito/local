@@ -104,7 +104,7 @@ def local09(repo, model, out, timeout):
             result["code"] = 1
     return result
 
-def cloi(repo, model, out, timeout):
+def cloi(repo, model, out, timeout, startup_trace=False):
     data = out / "cloi-data"
     data.mkdir()
     config = {"configVersion": 2, "model": model, "host": OLLAMA,
@@ -114,9 +114,12 @@ def cloi(repo, model, out, timeout):
               "compaction": False}
     (data / "config.json").write_text(json.dumps(config), encoding="utf-8")
     env = {**os.environ, "CLOI_DATA_DIR": str(data), "OLLAMA_HOST": OLLAMA}
-    return run(["node", "/opt/cloi/bin/cloi.js", "--cwd", str(repo),
-                "--model", model, "--yes", TASK],
-               cwd=repo, timeout=timeout, env=env)
+    cmd = ["node"]
+    if startup_trace:
+        cmd += ["--import", "/app/benchmarks/nemotron4b/cloi_startup_trace.mjs"]
+    cmd += ["/opt/cloi/bin/cloi.js", "--cwd", str(repo),
+            "--model", model, "--yes", TASK]
+    return run(cmd, cwd=repo, timeout=timeout, env=env)
 
 def cloi_preflight_probe(model, identity):
     """Bounded full-body decode through Cloi's Node provider, without inference."""
@@ -157,9 +160,24 @@ def cloi_startup_probe(model, identity):
     os.write(1, b'{"kind":"phase","name":"cloi-startup-probe"}\n')
     out = OUTPUT / "cloi-startup-probe"
     out.mkdir(exist_ok=False)
-    with tempfile.TemporaryDirectory(prefix="nemotron-startup-") as temp:
-        repo = prepare(Path(temp), "cloi-startup")
-        attempt = cloi(repo, model, out, 20)
+    # Import-check the *full upstream entrypoint* without creating a session
+    # or contacting Ollama. The earlier provider probe imports only ollama.js.
+    # This distinguishes import/module stalls from later bootstrap failures.
+    bootstrap = run(
+        ["node", "--import", "/app/benchmarks/nemotron4b/cloi_startup_trace.mjs",
+         "/opt/cloi/bin/cloi.js", "--help"],
+        timeout=6, env={**os.environ, "OLLAMA_HOST": OLLAMA},
+    )
+    save(out / "bootstrap.stdout.log", bootstrap["stdout"][-8000:])
+    save(out / "bootstrap.stderr.log", bootstrap["stderr"][-8000:])
+    bootstrap_passed = bootstrap["code"] == 0 and not bootstrap["timeout"]
+    if bootstrap_passed:
+        with tempfile.TemporaryDirectory(prefix="nemotron-startup-") as temp:
+            repo = prepare(Path(temp), "cloi-startup")
+            attempt = cloi(repo, model, out, 20, startup_trace=True)
+    else:
+        attempt = {"code": None, "timeout": True, "seconds": 0,
+                   "stdout": "", "stderr": "SKIPPED: CLI_MODULE_BOOTSTRAP_FAILED"}
     save(out / "stdout.log", attempt["stdout"][-12000:])
     save(out / "stderr.log", attempt["stderr"][-12000:])
     dbfile = out / "cloi-data" / "cloi.db"
@@ -179,7 +197,26 @@ def cloi_startup_probe(model, identity):
     expected_denial = "DIAGNOSTIC_GENERATION_BLOCKED" in (
         attempt["stderr"] + attempt["stdout"])
     reached_generation = expected_denial and counts.get("sessions", 0) >= 1
-    completed = reached_generation and not attempt["timeout"]
+    completed = reached_generation and not attempt["timeout"] and bootstrap_passed
+    # Preserve only metadata from the diagnostic channel; never return
+    # request/response bodies or file/source content.
+    traces = []
+    for line in attempt["stderr"].splitlines():
+        if line.startswith("STARTUP_TRACE "):
+            try:
+                item = json.loads(line[len("STARTUP_TRACE "):])
+                if item.get("event") in (
+                    "cli_module_bootstrap", "request_created", "response_headers",
+                    "response_trailers", "request_error"
+                ) and item.get("route") in (
+                    None, "/api/tags", "/api/show", "/api/chat", "/api/generate"
+                ):
+                    traces.append({
+                        "event": item["event"], "route": item.get("route"),
+                        "ms": item.get("ms"), "detail": item.get("detail")
+                    })
+            except (ValueError, TypeError, KeyError):
+                pass
     result = {
         "schema": 1,
         "status": "STARTUP_REACHED_GENERATION_GATE" if completed
@@ -192,6 +229,10 @@ def cloi_startup_probe(model, identity):
                     "seconds": attempt["seconds"],
                     "session_database_present": dbfile.is_file(),
                     "counts": counts,
+                    "cli_help": {"passed": bootstrap_passed,
+                                 "timed_out": bootstrap["timeout"],
+                                 "seconds": bootstrap["seconds"]},
+                    "request_trace": traces,
                     "generation_denial_observed": expected_denial},
     }
     (OUTPUT / "report.json").write_text(
