@@ -52,6 +52,6 @@ $relay = Join-Path $dir 'relay_host.py'
 & python $relay --docker-image $image --benchmark-dir $dir --adapter-dir $adapter --results-dir $results --model $Model --repeats $Repeats --timeout $TimeoutSeconds
 $exit = $LASTEXITCODE
 Write-Host "Evidencia: $results"
-if ($exit -eq 2) { throw "BLOCKED: Docker Engine, localhost Ollama ou modelo Q4_K_M." }
+if ($exit -eq 2) { throw "BLOCKED: consulte os artefatos para diagnosticar timeout, transporte, Docker ou modelo." }
 if ($exit -ne 0) { Write-Warning "Pelo menos uma tentativa falhou; consulte os resultados." }
 exit $exit
