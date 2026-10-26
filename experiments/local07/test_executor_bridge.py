@@ -57,7 +57,7 @@ class ExecutorContract(unittest.TestCase):
     def test_localized_anchors_fail_closed_with_distinct_reasons(self):
         for old, expected in (
             ("return x + 404", "EDIT_ANCHOR_NOT_FOUND"),
-            ("\\n", "EDIT_ANCHOR_NOT_UNIQUE"),
+            (chr(10), "EDIT_ANCHOR_NOT_UNIQUE"),
         ):
             candidate = json.dumps({
                 "schema": 2, "file": "calculator.py",
