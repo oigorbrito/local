@@ -195,3 +195,37 @@ O ensaio original `r01-local09`, preservado em dois diretórios,
 produziu um único patch de 954 bytes, cujo replay final no Windows
 foi `ACCEPTED` e passou 6/6 testes independentes. Essa evidência
 é separada da rodada Cloi-first bloqueada por tempo.
+
+
+## LOCAL-27: Cloi-first após o timeout — limites do diagnóstico
+
+A execução `local-nemotron-cloi-20261026-010735` foi diagnosticada
+offline: o preflight `/api/tags` retornou HTTP 200 em 0,141 s;
+no braço `r01-cloi`, duas chamadas `GET /api/tags` retornaram
+200 em 0,141 s e 0,125 s; `POST /api/show` retornou 200 em
+0,015 s. Todas essas quatro respostas foram integralmente transferidas,
+e o timeout de parede foi 420,175 s, sem patch. Nenhuma requisição
+`/api/chat` chegou a registrar métrica terminal; **isso não prova
+que a requisição não tenha começado**, pois as versões antigas não
+persistiam requisições iniciadas nem progresso antes da conclusão.
+
+Para retirar o último sinal disponível desses mesmos arquivos sem
+gerar novos tokens, o `diagnose.py` também consulta uma **cópia
+temporária** do banco SQLite `r01-cloi/cloi-data/cloi.db`, junto
+com os arquivos WAL/SHM disponíveis. Ele devolve apenas totais de
+sessões, mensagens por papel e ferramentas utilizadas; nunca imprime
+mensagens, código ou prompts. Assim distinguimos uma sessão que
+gravou somente o pedido inicial de uma sessão que concluiu turnos e
+executou ferramentas. Ausência do banco ou falha de leitura é
+reportada explicitamente, sem dedução de resultado funcional.
+
+Nas próximas execuções, `relay-request-starts.jsonl` e
+`relay-request-events.jsonl` registram início e fases de cada
+chamada `/api/chat` antes de a geração terminar: pedido encaminhado
+ao host, cabeçalhos recebidos, primeiro chunk, progresso de streaming
+a intervalos de pelo menos 15 segundos de tempo monotônico, frame
+`done` e envio integral ao contêiner. Somente IDs, tempos, número
+de bytes e códigos HTTP são incluídos nos eventos. A alteração não
+muda temperatura, modelo, contexto, limites ou fluxo de ferramentas.
+Esses eventos **não estão retroativamente disponíveis** na rodada
+histórica e não justificam reexecução de 420 s sem uma hipótese nova.
