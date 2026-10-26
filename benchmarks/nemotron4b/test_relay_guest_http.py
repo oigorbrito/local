@@ -4,6 +4,7 @@ No Ollama, Docker, model inference or remote network. Uses the actual guest
 Bridge handler with a deterministic local fake broker for headers and bodies.
 """
 import base64
+import http.client
 from http.server import ThreadingHTTPServer
 import json
 import shutil
@@ -119,6 +120,42 @@ class GuestUndiciTests(unittest.TestCase):
             created,
             ["/api/tags", "/api/tags", "/api/show"] * 4
         )
+
+
+    def test_incomplete_metadata_fails_before_http_success_headers(self):
+        def incomplete(frame):
+            with relay_guest._pending_lock:
+                inbox = relay_guest._pending[frame["id"]]
+            inbox.put({"kind": "start", "status": 200})
+            inbox.put({"kind": "chunk",
+                       "body": base64.b64encode(b'{"models":').decode("ascii")})
+            inbox.put({"kind": "error", "status": 502,
+                       "message": "UPSTREAM_INTERRUPTED"})
+
+        with patch.object(relay_guest, "emit", side_effect=incomplete):
+            server = ThreadingHTTPServer(("127.0.0.1", 0), relay_guest.Bridge)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                conn = http.client.HTTPConnection(
+                    "127.0.0.1", server.server_address[1], timeout=5)
+                try:
+                    conn.request("GET", "/api/tags")
+                    response = conn.getresponse()
+                    self.assertEqual(response.status, 502)
+                    self.assertEqual(response.getheader("Connection"), "close")
+                    self.assertIsNone(response.getheader("Transfer-Encoding"))
+                    body = response.read()
+                    self.assertEqual(
+                        int(response.getheader("Content-Length")), len(body))
+                    self.assertEqual(json.loads(body),
+                                     {"error": "UPSTREAM_INTERRUPTED"})
+                finally:
+                    conn.close()
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=3)
 
 
 if __name__ == "__main__":
