@@ -97,6 +97,10 @@ class RelayTransportTests(unittest.TestCase):
                                   if f["kind"] == "chunk"), payload)
         self.assertEqual(metrics["prompt_tokens"], 83)
         self.assertEqual(metrics["output_tokens"], 29)
+        self.assertTrue(metrics["response_complete"])
+        self.assertTrue(metrics["usage_available"])
+        self.assertGreaterEqual(metrics["elapsed_seconds"], 0)
+        self.assertEqual(metrics["path"], "/api/generate")
         raw = metrics["raw_response"]
         self.assertIsNotNone(raw)
         evidence = Path(self.temp.name) / raw["relative_path"]
@@ -120,6 +124,9 @@ class RelayTransportTests(unittest.TestCase):
         self.assertEqual(b"".join(base64.b64decode(f["body"]) for f in frames
                                   if f["kind"] == "chunk"), b"".join(chunks))
         self.assertEqual((metrics["prompt_tokens"], metrics["output_tokens"]), (31, 7))
+        self.assertTrue(metrics["response_complete"])
+        self.assertTrue(metrics["usage_available"])
+        self.assertEqual(metrics["path"], "/api/chat")
         raw = metrics["raw_response"]
         self.assertEqual((Path(self.temp.name) / raw["relative_path"]).read_bytes(),
                          b"".join(chunks))
@@ -134,7 +141,11 @@ class RelayTransportTests(unittest.TestCase):
             network.assert_not_called()
         self.assertEqual([item["kind"] for item in self.proc.stdin.frames], ["error"])
         self.assertEqual(self.proc.stdin.frames[0]["status"], 502)
-        self.assertIsNone(json.loads(self.metrics.read_text())["raw_response"])
+        denied = json.loads(self.metrics.read_text())
+        self.assertFalse(denied["response_complete"])
+        self.assertFalse(denied["usage_available"])
+        self.assertEqual(denied["error_type"], "ValueError")
+        self.assertIsNone(denied["raw_response"])
 
     def test_model_mismatch_does_not_forward(self):
         frame = {"kind": "request", "id": self.ident, "method": "POST",
