@@ -36,5 +36,5 @@ jobs:
               )
               assert p.returncode != 0, "the vulnerable baseline unexpectedly passed"
               assert "Ran 6 tests" in p.stderr
-              assert "FAILED (errors=4)" in p.stderr, p.stderr
+              assert "FAILED (failures=4)" in p.stderr, p.stderr
           PY
