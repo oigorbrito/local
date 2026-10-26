@@ -21,7 +21,7 @@ def dataset():
         row.update({
             "problem_statement":f"Fix behavior in {row['instance_id']} based on a real regression and preserve existing behavior.",
             "patch":"diff --git a/module.py b/module.py\n--- a/module.py\n+++ b/module.py\n@@ -1 +1 @@\n-old\n+new\n",
-            "test_patch":"independent oracle only SECRET_PASSED_TO_EVALUATOR",
+            "test_patch":f"independent oracle only SECRET_PASSED_TO_EVALUATOR {row['instance_id']}",
             "FAIL_TO_PASS":json.dumps([f"test_{row['instance_id']}"])})
     return json.dumps({"num_rows_total":23,
                        "rows":[{"row_idx":i,"row":row} for i,row in enumerate(data)]}).encode()
