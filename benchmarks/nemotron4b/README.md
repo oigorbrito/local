@@ -30,7 +30,9 @@ tokens são iguais. Temperatura 0; Cloi sem modelo de fallback.
 
 Os resultados ficam fora do Git, na pasta irmã local-nemotron-comparison:
 report.json, result.patch, logs por tentativa e arquivos da execução
-LOCAL-09. Não há commit nem merge automático.
+LOCAL-09. Respostas brutas do Ollama ficam em raw-ollama-responses/,
+com SHA-256 indexado em relay-request-metrics.jsonl, inclusive quando
+o LOCAL-09 rejeita um JSON ou não produz patch. Não há commit nem merge automático.
 
 LIMITAÇÕES: o broker fixa num_predict=2048, num_ctx=4096 e temperatura=0
 em cada chamada do Ollama, para ambos os executores. O número de chamadas
@@ -49,7 +51,7 @@ que corresponde byte a byte à antiga tarefa congelada do LOCAL-19.
 
 Verificação offline da ponte (não exige Docker Engine nem inferência):
 
-    python -B -m unittest discover -s .\benchmarks\nemotron4b -p test_relay_contract.py -v
+    python -B -m unittest discover -s .\benchmarks\nemotron4b -p test_relay_*.py -v
 
 O script run.ps1 executa esse gate antes de iniciar o contêiner.
 Para sair do bloqueio atual, inicie o Docker Desktop e confirme que
