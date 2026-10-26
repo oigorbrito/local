@@ -23,11 +23,20 @@ REPO = pathlib.Path(__file__).resolve().parents[2]
 
 class FrozenAnchorCase(unittest.TestCase):
     def test_pinned_real_bug_is_retrieved_without_generation(self):
-        self.assertEqual(hashlib.sha256(TASK.read_bytes()).hexdigest(), TASK_SHA256)
+        # Read committed Git bytes rather than the worktree's CRLF-converted
+        # representation on Windows. The frozen SHA remains byte-exact.
+        committed_task = subprocess.run(
+            ["git", "show", "HEAD:" + TASK.relative_to(REPO).as_posix()],
+            cwd=REPO, check=True, capture_output=True, timeout=40,
+        ).stdout
+        self.assertEqual(hashlib.sha256(committed_task).hexdigest(), TASK_SHA256)
         self.assertEqual(
             len(CASE), len("oigorbrito__local-anchor-separation-002")
         )
         with tempfile.TemporaryDirectory(prefix="local20-case-") as tmp:
+            frozen_task = pathlib.Path(tmp) / "task.txt"
+            frozen_task.write_bytes(committed_task)
+            self.assertEqual(hashlib.sha256(frozen_task.read_bytes()).hexdigest(), TASK_SHA256)
             trial = pathlib.Path(tmp) / "trial"
             session = pathlib.Path(tmp) / "new-session"
             subprocess.run(
@@ -36,7 +45,7 @@ class FrozenAnchorCase(unittest.TestCase):
             )
             try:
                 root, task = pinned_inputs(
-                    trial, session, TASK, case_id=CASE,
+                    trial, session, frozen_task, case_id=CASE,
                     expected_head=PINNED_HEAD, expected_blob=PINNED_BLOB,
                     expected_task_sha256=TASK_SHA256, target=TARGET,
                 )
