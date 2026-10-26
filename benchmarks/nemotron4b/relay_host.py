@@ -96,7 +96,7 @@ def record_request_progress(metrics_path, ident, phase, stage, elapsed_seconds,
             stream.write(json.dumps(record, separators=(",", ":")) + "\n")
 
 
-def forward(proc, item, model, timeout, metrics_path, phase):
+def forward(proc, item, model, timeout, metrics_path, phase, block_generation=False):
     ident = item.get("id")
     if not isinstance(ident, str) or len(ident) != 32:
         return
@@ -118,6 +118,11 @@ def forward(proc, item, model, timeout, metrics_path, phase):
         path = item.get("path")
         raw = base64.b64decode(item.get("body", ""), validate=True)
         body, streamed = validate(method, path, raw, model)
+        if block_generation and path in ("/api/chat", "/api/generate"):
+            record_request_progress(metrics_path, ident, phase,
+                                    "generation_blocked_before_upstream",
+                                    time.monotonic() - started_at)
+            raise ValueError("DIAGNOSTIC_GENERATION_BLOCKED")
         connection = http.client.HTTPConnection("127.0.0.1", 11434, timeout=timeout + 50)
         connection.request(method, path, body=body, headers={
             "Content-Type": "application/json", "Connection": "close"
@@ -233,7 +238,10 @@ def main():
     parser.add_argument("--first-executor", choices=("local09", "cloi"),
                         default="local09")
     parser.add_argument("--probe-only", action="store_true")
+    parser.add_argument("--startup-probe", action="store_true")
     args = parser.parse_args()
+    if args.probe_only and args.startup_probe:
+        parser.error("probe-only and startup-probe are mutually exclusive")
     if not 1 <= args.repeats <= 5 or not 60 <= args.timeout <= 420:
         parser.error("repeats 1..5; timeout 60..420")
     benchmark = require_path(args.benchmark_dir)
@@ -259,6 +267,8 @@ def main():
     ]
     if args.probe_only:
         cmd.append("--probe-only")
+    if args.startup_probe:
+        cmd.append("--startup-probe")
     workers = []
     phase = "preflight"
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -280,7 +290,8 @@ def main():
                     print("INVALID_RELAY_REQUEST_ID", file=sys.stderr)
                     continue
                 worker = threading.Thread(
-                    target=forward, args=(child, item, args.model, args.timeout, metrics_path, phase),
+                    target=forward, args=(child, item, args.model, args.timeout,
+                                          metrics_path, phase, args.startup_probe),
                     daemon=True,
                 )
                 worker.start()
