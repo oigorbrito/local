@@ -232,6 +232,7 @@ def main():
     parser.add_argument("--timeout", type=int, default=420)
     parser.add_argument("--first-executor", choices=("local09", "cloi"),
                         default="local09")
+    parser.add_argument("--probe-only", action="store_true")
     args = parser.parse_args()
     if not 1 <= args.repeats <= 5 or not 60 <= args.timeout <= 420:
         parser.error("repeats 1..5; timeout 60..420")
@@ -256,6 +257,8 @@ def main():
         "--timeout", str(args.timeout),
         "--first-executor", args.first_executor,
     ]
+    if args.probe_only:
+        cmd.append("--probe-only")
     workers = []
     phase = "preflight"
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
