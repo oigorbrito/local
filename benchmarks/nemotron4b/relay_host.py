@@ -7,6 +7,7 @@ only to Windows 127.0.0.1:11434. No other TCP endpoint is forwarded.
 import argparse
 import base64
 import http.client
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -61,6 +62,7 @@ def forward(proc, item, model, timeout, metrics_path, phase):
     output_tokens = 0
     payload_bytes = 0
     collected = bytearray()
+    raw_record = None
     try:
         method = item.get("method")
         path = item.get("path")
@@ -78,7 +80,7 @@ def forward(proc, item, model, timeout, metrics_path, phase):
             if not chunk:
                 break
             payload_bytes += len(chunk)
-            if not streamed and path == "/api/generate":
+            if path in ("/api/generate", "/api/chat"):
                 collected.extend(chunk)
             if payload_bytes > MAX_REPLY:
                 raise ValueError("OLLAMA_REPLY_TOO_LARGE")
@@ -92,7 +94,7 @@ def forward(proc, item, model, timeout, metrics_path, phase):
                         output_tokens = data.get("eval_count") or 0
                 except (ValueError, AttributeError):
                     pass
-        if collected:
+        if collected and not streamed:
             try:
                 data = json.loads(collected)
                 prompt_tokens = data.get("prompt_eval_count") or 0
@@ -110,9 +112,22 @@ def forward(proc, item, model, timeout, metrics_path, phase):
     finally:
         if connection:
             connection.close()
+        if collected and path in ("/api/generate", "/api/chat"):
+            # Keep the original Ollama reply even if JSON contract validation
+            # later rejects it; this stores response bytes, not the user prompt.
+            evidence = metrics_path.parent / "raw-ollama-responses"
+            evidence.mkdir(exist_ok=True)
+            file = evidence / (ident + (".ndjson" if streamed else ".json"))
+            with file.open("xb") as stream:
+                stream.write(collected)
+            raw_record = {
+                "relative_path": file.relative_to(metrics_path.parent).as_posix(),
+                "sha256": hashlib.sha256(collected).hexdigest(),
+                "bytes": len(collected),
+            }
         metrics = {"request_id": ident, "phase": phase, "http_status": status,
                    "prompt_tokens": prompt_tokens, "output_tokens": output_tokens,
-                   "response_bytes": payload_bytes}
+                   "response_bytes": payload_bytes, "raw_response": raw_record}
         with _stdout_lock:
             with metrics_path.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(metrics) + "\n")
