@@ -131,6 +131,17 @@ class RelayTransportTests(unittest.TestCase):
         self.assertEqual((Path(self.temp.name) / raw["relative_path"]).read_bytes(),
                          b"".join(chunks))
         self.assertEqual(fake.requests[0][1], "/api/chat")
+        progress = [
+            json.loads(line) for line in
+            (Path(self.temp.name) / "relay-request-events.jsonl").read_text().splitlines()
+        ]
+        self.assertEqual(
+            [entry["stage"] for entry in progress],
+            ["upstream_request_sent", "upstream_headers_received",
+             "upstream_first_chunk", "upstream_model_done", "guest_end_forwarded"])
+        self.assertEqual(progress[2]["response_bytes"], len(chunks[0]))
+        self.assertEqual(progress[-1]["response_bytes"], sum(map(len, chunks)))
+        self.assertFalse(any("body" in entry or "content" in entry for entry in progress))
 
     def test_disallowed_route_never_contacts_ollama(self):
         frame = {"kind": "request", "id": self.ident, "method": "POST",
