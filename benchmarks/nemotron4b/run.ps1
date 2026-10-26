@@ -20,6 +20,28 @@ docker info --format '{{.ServerVersion}}' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Docker Desktop indisponivel." }
 if (Test-Path (Join-Path $results "report.json")) { throw "Use uma pasta de saida nova." }
 New-Item -ItemType Directory -Force -Path $results | Out-Null
+# Hardware attestation only: no host/user identifiers, no inference and no secrets.
+$cpuName = "UNKNOWN"
+$ramBytes = $null
+$gpuInventory = @()
+try {
+  $cpuName = (Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name).Trim()
+  $ramBytes = [long](Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory)
+} catch { Write-Warning "Hardware CPU/RAM inventory unavailable." }
+if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+  $gpuInventory = @(& nvidia-smi '--query-gpu=name,memory.total,driver_version' '--format=csv,noheader,nounits')
+  if ($LASTEXITCODE -ne 0) { $gpuInventory = @() }
+}
+$hardware = [ordered]@{
+  schema = 1
+  collected_at_utc = [DateTime]::UtcNow.ToString("o")
+  os = "Windows"
+  cpu = $cpuName
+  ram_bytes = $ramBytes
+  gpu_nvidia_name_memory_mib_driver_csv = $gpuInventory
+  gpu_telemetry = "inventory_only; no VRAM peak claim"
+}
+$hardware | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $results 'hardware.json') -Encoding UTF8
 $image = "local-nemotron4b-comparison:cloi-2.1.0"
 docker build --file (Join-Path $dir "Dockerfile") --tag $image $dir
 if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar imagem isolada." }
