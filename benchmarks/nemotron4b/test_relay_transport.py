@@ -143,6 +143,27 @@ class RelayTransportTests(unittest.TestCase):
         self.assertEqual(progress[-1]["response_bytes"], sum(map(len, chunks)))
         self.assertFalse(any("body" in entry or "content" in entry for entry in progress))
 
+    def test_large_show_reply_transfers_complete_json_body(self):
+        # Cloi reads /api/show with Node fetch(...).json(). Its historical
+        # 22-KiB reply must survive the bridge's chunked transfer unchanged.
+        payload = json.dumps({
+            "capabilities": ["completion", "tools"],
+            "modelfile": "x" * 22500,
+        }).encode()
+        fake, frames, metrics = self.relay(
+            "/api/show", {"model": MODEL}, [payload[:900], payload[900:18000], payload[18000:]],
+        )
+        self.assertEqual([f["kind"] for f in frames],
+                         ["start", "chunk", "chunk", "chunk", "end"])
+        reconstructed = b"".join(
+            base64.b64decode(f["body"]) for f in frames if f["kind"] == "chunk")
+        self.assertEqual(reconstructed, payload)
+        self.assertEqual(json.loads(reconstructed)["capabilities"],
+                         ["completion", "tools"])
+        self.assertTrue(metrics["response_complete"])
+        self.assertEqual(metrics["response_bytes"], len(payload))
+        self.assertIsNone(metrics["raw_response"])
+
     def test_disallowed_route_never_contacts_ollama(self):
         frame = {"kind": "request", "id": self.ident, "method": "POST",
                  "path": "/api/pull",
