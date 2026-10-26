@@ -1,6 +1,7 @@
 param(
   [string]$Model = "nemotron-3-nano:4b",
   [ValidateRange(1,5)][int]$Repeats = 3,
+  [ValidateSet('local09','cloi')][string]$FirstExecutor = 'local09',
   [ValidateRange(60,420)][int]$TimeoutSeconds = 420,
   [string]$OutputDir = ""
 )
@@ -49,7 +50,7 @@ docker build --file (Join-Path $dir "Dockerfile") --tag $image $dir
 if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar imagem isolada." }
 $adapter = Join-Path $repo 'experiments\local07'
 $relay = Join-Path $dir 'relay_host.py'
-& python $relay --docker-image $image --benchmark-dir $dir --adapter-dir $adapter --results-dir $results --model $Model --repeats $Repeats --timeout $TimeoutSeconds
+& python $relay --docker-image $image --benchmark-dir $dir --adapter-dir $adapter --results-dir $results --model $Model --repeats $Repeats --timeout $TimeoutSeconds --first-executor $FirstExecutor
 $exit = $LASTEXITCODE
 Write-Host "Evidencia: $results"
 if ($exit -eq 2) { throw "BLOCKED: consulte os artefatos para diagnosticar timeout, transporte, Docker ou modelo." }
