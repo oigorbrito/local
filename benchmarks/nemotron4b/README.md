@@ -439,3 +439,36 @@ Proximo gate: atualizar branch e executar SOMENTE `run.ps1` com
 `-StartupProbe` e uma pasta nova, mantendo /api/chat bloqueado.
 Somente STARTUP_REACHED_GENERATION_GATE permite voltar a uma
 comparacao real do modelo. Sem merge automatico.
+
+## LOCAL-27: guest stdin encerrado durante inicializacao integrada
+
+Na execucao real Windows de 26/10/2026,
+`D:\projetos\local-nemotron-guest-audit-20261026-084357`,
+o guest registrou `stdin_pipe_closed` no primeiro GET /api/tags do
+Cloi, pouco depois de receber os quadros `start`, `chunk` e `end`.
+A segunda chamada GET /api/tags foi emitida APOS esse EOF. O host
+Windows ainda registrou HTTP 200, 4638 bytes e `guest_end_forwarded`
+para as duas chamadas. O Cloi recebeu 200 na primeira consulta,
+enviou a segunda, nao recebeu resposta e encerrou em 20,026 s.
+
+Conclui-se que o host completar escrita no pipe NAO assegura que o
+processo guest recebeu os quadros. A causa fisica do EOF no Docker
+Windows ainda exige validacao; nao foi demonstrada falha do Ollama.
+
+Defeito estrutural corrigido no runner: `compare.run()` nao isolava
+o `stdin` dos subprocessos; comandos Git, Python e o CLI Node do Cloi
+podiam herdar o mesmo descritor reservado ao protocolo do broker.
+Agora todos recebem explicitamente `stdin=subprocess.DEVNULL`.
+Essa separacao nao refatora o doador nem muda o modelo. Um teste com
+processos Python reais comprova que um filho nao consome quadro
+destinado ao receptor pai; uma assercao de API preserva o contrato.
+Adicionalmente o guest registra EOF e passa a recusar novas
+requisicoes imediatamente com HTTP 502 BROKER_PIPE_CLOSED, sem deixar
+o cliente aguardar o teto de 20/420 segundos.
+
+Valide Windows via `run.ps1 -StartupProbe` em um novo diretorio.
+Esse teste mantem POST /api/chat e POST /api/generate bloqueados
+antes do Ollama. Gate de sucesso: `STARTUP_REACHED_GENERATION_GATE`;
+se ainda houver EOF, analisar `guest-bridge-events.jsonl`,
+`relay-request-events.jsonl` e `report.json`. Nao reivindicar causa
+definitiva de Docker sem reproduzir o gate no Windows real.
