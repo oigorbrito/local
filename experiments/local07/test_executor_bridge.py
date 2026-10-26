@@ -54,6 +54,23 @@ class ExecutorContract(unittest.TestCase):
             with self.subTest(payload=payload[:40]), self.assertRaises(ContractError):
                 parse_response(payload, request.selected_files)
 
+    def test_explicit_localized_request_and_replay(self):
+        request = prepare(self.root, self.issue, output_schema=2)
+        expected = request.to_json()["output_contract"]
+        self.assertEqual(expected["schema"], 2)
+        self.assertIn("old", expected)
+        self.assertNotIn("content", expected)
+        response = json.dumps({
+            "schema": 2, "file": "calculator.py",
+            "old": "return x + 1", "new": "return x + 2"
+        }).encode("utf-8")
+        report, patch = replay(self.root, self.issue, response, output_schema=2)
+        self.assertEqual(report["request"]["output_contract"]["schema"], 2)
+        self.assertEqual(report["status"], "PATCH_APPLICABLE_NOT_GRADED")
+        self.assertIn("+    return x + 2", patch)
+        with self.assertRaisesRegex(ContractError, "RESPONSE_CONTRACT_VERSION_MISMATCH"):
+            replay(self.root, self.issue, self.payload(), output_schema=2)
+
     def test_localized_anchors_fail_closed_with_distinct_reasons(self):
         for old, expected in (
             ("return x + 404", "EDIT_ANCHOR_NOT_FOUND"),
