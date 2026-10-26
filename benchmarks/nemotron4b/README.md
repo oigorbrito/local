@@ -338,3 +338,30 @@ O relatório JSON contém os estágios e status de ambos os ambientes:
 `cloi-sqlite-probe/tmpfs.stderr.log` contêm somente marcos como
 `SQLITE_STAGE_SESSION_CREATE_BEGIN`, sem código de usuário ou
 conversa. Os relatórios anteriores não são alterados.
+
+## LOCAL-27: SQLite isolado PASS; observação da inicialização integrada
+
+Resultado real no Windows (26/10/2026): SQLITE_BOTH_PASS.
+Persistência upstream node:sqlite/WAL no volume Windows: 0,207 s, PASS.
+No Docker /tmp: 0,061 s, PASS. Ambos criaram cloi.db e persistiram
+uma mensagem. São medições únicas e não uma comparação de desempenho.
+
+O provedor Cloi isolado passou em 0,709 s, mas o CLI completo anterior
+bloqueou por 20,022 s, sem cloi.db nem início de geração comprovado.
+SQLite isolado não explica esse bloqueio. O próximo diagnóstico amplia
+o modo -StartupProbe, mas continua SEM chamada efetiva de geração:
+
+    .\benchmarks\nemotron4b\run.ps1 -StartupProbe -OutputDir D:\projetos\local-nemotron-cloi-startup-traced
+
+O runner verifica primeiro o carregamento completo dos módulos doador
+via cloi --help (timeout de 6 s); se PASS, executa o CLI com um preload
+passivo de node:diagnostics_channel (timeout de 20 s) e o relay bloqueia
+POST /api/chat e POST /api/generate antes do upstream. Os marcos
+request_created, response_headers, response_trailers e request_error
+são capturados somente para rotas Ollama permitidas, com tempo e status;
+não incluem prompts, conteúdo de resposta nem arquivos privados.
+
+Consultar em report.json: startup.cli_help, startup.request_trace e
+startup.session_database_present; confrontar com relay-request-events.jsonl.
+Esse ensaio distingue importação travada de fetch pendente e início de
+sessão; não demonstra qualidade do modelo nem causa-raiz antes da execução.
