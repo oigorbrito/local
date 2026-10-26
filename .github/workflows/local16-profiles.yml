@@ -19,6 +19,7 @@ on:
       - 'experiments/local07/local20_pipeline.py'
       - 'experiments/local07/test_local20_pipeline.py'
       - 'experiments/local07/test_local20_preregistered_case.py'
+      - 'experiments/local07/run_local20_windows.ps1'
       - 'experiments/local07/cases/anchor-reasons-002.txt'
       - 'experiments/local07/local17_real_issue_trial.py'
       - 'experiments/local07/test_local17_real_issue_trial.py'
@@ -47,6 +48,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Parse LOCAL-20 Windows launcher without executing it
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          $file = Join-Path $PWD 'experiments/local07/run_local20_windows.ps1'
+          $null = [System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
       - name: Compile and test
         shell: bash
         run: |
