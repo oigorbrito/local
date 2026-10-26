@@ -87,7 +87,7 @@ def safe_git_result(result):
 
 
 def validate_case(repo, commit, gold, tests, git_timeout=90):
-    if not REPO.fullmatch(repo) or not SHA.fullmatch(commit):
+    if not REPO.fullmatch(repo) or any(x in (".","..") for x in repo.split("/")) or not SHA.fullmatch(commit):
         raise ValueError("REPO_OR_COMMIT_NOT_VALID")
     try:
         gold_paths=patch_paths(gold)
