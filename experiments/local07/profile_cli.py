@@ -76,6 +76,14 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     before = provenance(repo)
     issue = json.loads(pathlib.Path(issue_json).read_text(encoding="utf-8"))["problem_statement"]
     request = prepare(repo, issue)
+
+    def preserve_response(payload):
+        """Persist bounded returned bytes before source and patch validation."""
+        if response_json_path is not None:
+            if len(payload) > MAX_RESPONSE_BYTES:
+                raise ContractError("RESPONSE_TOO_LARGE")
+            save_outputs([(response_json_path, payload)])
+
     if offline_response_json is None:
         stage('MODEL_REQUEST_OR_RESPONSE')
         payload = generate(
@@ -87,6 +95,10 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         with pathlib.Path(offline_response_json).open("rb") as stream:
             payload = stream.read(MAX_RESPONSE_BYTES + 1)
         mode = "offline_replay"
+    # Record the returned reply before the source and patch validation gates.
+    # Never overwrite a response already saved in this session.
+    if response_json_path is not None and not pathlib.Path(response_json_path).is_file():
+        preserve_response(payload)
     stage('RESPONSE_VALIDATION')
     if before != provenance(repo):
         raise ContractError("SOURCE_CHANGED_DURING_GENERATION")
@@ -101,8 +113,6 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         (patch_path, patch.encode("utf-8")),
         (report_path, (json.dumps(validation, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     ]
-    if response_json_path is not None:
-        artifacts.append((response_json_path, payload))
     stage('PERSISTENCE')
     save_outputs(artifacts)
     return validation

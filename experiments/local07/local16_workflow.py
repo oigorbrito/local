@@ -232,13 +232,20 @@ def generate(session, *, offline_response_json=None, timeout=180, inspector=insp
             category = "IO"
         else:
             category = "UNCLASSIFIED"
+        raw_file = path / RESPONSE
+        raw_response = (read_bounded(raw_file, 256 * 1024)
+                        if raw_file.is_file() and not raw_file.is_symlink()
+                        else None)
+        received = ({"response_sha256": sha(raw_response)}
+                    if raw_response is not None else {})
         save_outputs([(path / FAILURE, canonical({
             "schema": 1, "status": "GENERATION_FAILED",
             "phase": phase, "category": category,
-            "model_delivery_confirmed": False,
+            "model_delivery_confirmed": raw_response is not None,
             "model_call_authorized": response_path is None,
             "profile": manifest["profile"],
-            "request_sha256": manifest["request_sha256"]
+            "request_sha256": manifest["request_sha256"],
+            **received
         }))])
         raise
     if response_path is None:
@@ -353,13 +360,29 @@ def status(session):
                         "RESPONSE_VALIDATION", "PERSISTENCE"}
                     or failure.get("category") not in {
                         "TIMEOUT", "TRANSPORT", "CONTRACT", "IO", "UNCLASSIFIED"}
-                    or failure.get("model_delivery_confirmed") is not False
+                    or failure.get("model_delivery_confirmed") is not (
+                        (path / RESPONSE).is_file() and not (path / RESPONSE).is_symlink()
+                    )
+                    or (
+                        failure.get("model_delivery_confirmed") is True
+                        and failure.get("response_sha256") != sha(
+                            read_bounded(path / RESPONSE, 256 * 1024)
+                        )
+                    )
+                    or (
+                        failure.get("model_delivery_confirmed") is False
+                        and "response_sha256" in failure
+                    )
                     or failure.get("model_call_authorized") is not (
                         json.loads(read_bounded(path / ATTEMPT)).get("model_call_authorized")
                     )):
                 raise ContractError("SESSION_FAILURE_EVIDENCE_INVALID")
-            result["failure"] = {"phase": failure["phase"], "category": failure["category"],
-                                 "model_delivery_confirmed": False}
+            result["failure"] = {
+                "phase": failure["phase"], "category": failure["category"],
+                "model_delivery_confirmed": failure["model_delivery_confirmed"],
+                **({"response_sha256": failure["response_sha256"]}
+                   if failure["model_delivery_confirmed"] else {})
+            }
     return result
 
 

@@ -54,6 +54,19 @@ class ExecutorContract(unittest.TestCase):
             with self.subTest(payload=payload[:40]), self.assertRaises(ContractError):
                 parse_response(payload, request.selected_files)
 
+    def test_localized_anchors_fail_closed_with_distinct_reasons(self):
+        for old, expected in (
+            ("return x + 404", "EDIT_ANCHOR_NOT_FOUND"),
+            (chr(10), "EDIT_ANCHOR_NOT_UNIQUE"),
+        ):
+            candidate = json.dumps({
+                "schema": 2, "file": "calculator.py",
+                "old": old, "new": "return x + 2",
+            }).encode("utf-8")
+            with self.subTest(reason=expected), self.assertRaisesRegex(ContractError, expected):
+                replay(self.root, self.issue, candidate)
+            self.assertEqual(git(self.root, "status", "--porcelain").strip(), "")
+
     def test_invalid_syntax_and_dirty_source(self):
         with self.assertRaises(SyntaxError):
             replay(self.root, self.issue, self.payload(content="def calculate("))

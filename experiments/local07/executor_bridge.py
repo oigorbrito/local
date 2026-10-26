@@ -86,7 +86,10 @@ def replay(repo, issue, response_bytes):
             content = original.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ContractError("INVALID_SOURCE_ENCODING") from exc
-        if content.count(source["old"]) != 1:
+        occurrences = content.count(source["old"])
+        if occurrences == 0:
+            raise ContractError("EDIT_ANCHOR_NOT_FOUND")
+        if occurrences > 1:
             raise ContractError("EDIT_ANCHOR_NOT_UNIQUE")
         source = content.replace(source["old"], source["new"], 1)
     report, patch = assess(repo, issue, path, source, max_files=2)

@@ -77,7 +77,7 @@ class PolicyContractTests(unittest.TestCase):
             "schema": 1, "file": "calculator.py",
             "content": "def calculate(x):\n    return x+2\n"
         })
-        conn = MockConnection(MockShowResponse(json.dumps({"response": generated}).encode()))
+        conn = MockConnection(MockShowResponse(json.dumps({"response": generated, "done": True}).encode()))
         with patch("ollama_adapter.http.client.HTTPConnection", return_value=conn):
             payload = generate(req, profile.base_model, system=profile.system, options=profile.options)
         self.assertIn(b"calculator.py", payload)
@@ -87,7 +87,7 @@ class PolicyContractTests(unittest.TestCase):
         self.assertEqual(request_body["system"], profile.system)
         self.assertEqual(request_body["options"], profile.options)
         self.assertFalse(request_body["stream"])
-        self.assertEqual(request_body["format"], "json")
+        self.assertEqual(request_body["format"]["properties"]["file"]["enum"], ["calculator.py"])
         self.assertTrue(conn.closed)
 
     def test_unverified_options_and_empty_policy_refused_without_network(self):
