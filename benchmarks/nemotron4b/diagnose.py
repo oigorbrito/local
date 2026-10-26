@@ -75,12 +75,15 @@ def analyze(root):
     report = json.loads(report_path.read_text(encoding="utf-8"))
     metrics = load_jsonl(root / "relay-request-metrics.jsonl")
     starts = load_jsonl(root / "relay-request-starts.jsonl")
+    events = load_jsonl(root / "relay-request-events.jsonl")
     completed_ids = {r.get("request_id") for r in metrics}
     phases = {}
     for item in metrics:
         phase = item.get("phase", "unknown")
         phases.setdefault(phase, []).append(item)
     for item in starts:
+        phases.setdefault(item.get("phase", "unknown"), [])
+    for item in events:
         phases.setdefault(item.get("phase", "unknown"), [])
     summary = []
     for phase, records in phases.items():
@@ -89,6 +92,14 @@ def analyze(root):
             {"id": r.get("request_id"),
              "method": r.get("method"), "path": r.get("path")}
             for r in initiated if r.get("request_id") not in completed_ids
+        ]
+        phase_events = [
+            {"stage": r.get("stage"),
+             "elapsed_seconds": r.get("elapsed_seconds"),
+             "response_bytes": r.get("response_bytes"),
+             "http_status": r.get("http_status"),
+             "request_id": r.get("request_id")}
+            for r in events if r.get("phase") == phase
         ]
         requests = []
         for r in records:
@@ -112,6 +123,7 @@ def analyze(root):
             "unfinished_at_collection": unsettled,
             "coverage": ("REQUEST_STARTS_AVAILABLE" if starts
                          else "HISTORICAL_COMPLETED_ONLY"),
+            "request_events": phase_events,
             "requests": requests,
         })
     return {
@@ -130,7 +142,10 @@ def analyze(root):
         "phases": summary,
         "limitation": ("No start records in this historical run: requests left in flight "
                        "when the container exited cannot be reconstructed."
-                       if not starts else None),
+                       if not starts else
+                       "Request-start records available, but there are no progress-stage "
+                       "events in this run; stalled network stage remains unknown."
+                       if not events else None),
     }
 
 
