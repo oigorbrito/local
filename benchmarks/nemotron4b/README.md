@@ -4,8 +4,8 @@ Duas alternativas reais, mesma GPU do Windows e mesmo Ollama: executor
 LOCAL-09 já integrado em main versus Cloi 2.1.0 fixado no commit
 1da62db7aa3aed8b1e65f1e3fb69a89cf00707b9.
 
-Requisitos: Windows 11, PowerShell, Docker Desktop com host networking
-habilitado, Ollama ouvindo APENAS em 127.0.0.1:11434 e o modelo
+Requisitos: Windows 11, Python 3, PowerShell, Docker Desktop com Engine Linux
+ativo, Ollama ouvindo APENAS em 127.0.0.1:11434 e o modelo
 nemotron-3-nano:4b quantizado Q4_K_M.
 
 No PowerShell, na raiz do repositório:
@@ -14,9 +14,12 @@ No PowerShell, na raiz do repositório:
     ollama show nemotron-3-nano:4b
     .\benchmarks\nemotron4b\run.ps1 -Repeats 3
 
-Se Docker não alcançar Ollama usando --network host, o comparador bloqueia.
-Não amplie OLLAMA_HOST para 0.0.0.0 para contornar essa limitação.
-Em Docker Desktop, host networking depende de configuração/habilitação.
+O contêiner roda com **--network none**. A ponte relay_host.py, executada
+no Windows, encaminha por stdio apenas GET /api/tags e POST /api/show,
+/api/chat e /api/generate para 127.0.0.1:11434. Ela recusa outro modelo,
+outros endpoints e outras portas. Não é necessário host networking.
+Não altere OLLAMA_HOST para 0.0.0.0. Docker Engine deve estar ativo;
+o script nunca tenta iniciá-lo ou modificar configurações do Windows.
 
 Uma fixture Git limpa é recriada para cada tentativa dentro do contêiner.
 Os testes de segurança do caminho exercitam traversal, caminhos absolutos
@@ -29,16 +32,17 @@ Os resultados ficam fora do Git, na pasta irmã local-nemotron-comparison:
 report.json, result.patch, logs por tentativa e arquivos da execução
 LOCAL-09. Não há commit nem merge automático.
 
-LIMITAÇÕES: LOCAL-09 força num_predict=2048; Cloi 2.1.0 não fixa
-num_predict em seu endpoint Ollama. As rodadas de ferramentas diferem.
-A comparação permite avaliar correção e tempo, mas NÃO declarar vencedor
-por eficiência de tokens sem normalizar esse parâmetro e repetir tarefas.
+LIMITAÇÕES: o broker fixa num_predict=2048, num_ctx=4096 e temperatura=0
+em cada chamada do Ollama, para ambos os executores. O número de chamadas
+por tarefa ainda difere; o resultado em uma única fixture não declara
+vencedor geral. Métricas por chamada são retidas em relay-request-metrics.jsonl.
 
-SEGURANÇA: Docker contém o executor Cloi com --yes, mas o host networking
-não isola acesso a serviços de rede do Windows. Apenas a fixture e os módulos do LOCAL-07 são montados em read-only,
-não o checkout inteiro; não se monta HOME nem socket Docker. Execute apenas em
-ambiente sem serviços locais sensíveis acessíveis pelo contêiner.
-Não trate isso como sandbox de rede hermética.
+SEGURANÇA: Docker executa o Cloi com --yes apenas na fixture descartável,
+com --network none, rootfs read-only, sem mounts de HOME/socket Docker.
+Apenas fixture e módulos LOCAL-07 são montados read-only. A única
+comunicação com o Windows é o proxy de quatro endpoints Ollama por stdio.
+Isso não prova segurança absoluta contra exploração de contêiner ou Docker.
+Não execute conteúdo não confiável se o runtime do Docker estiver comprometido.
 
 A fixture nova é uma reprodução de escape por symlink. Não afirmamos
 que corresponde byte a byte à antiga tarefa congelada do LOCAL-19.
