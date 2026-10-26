@@ -46,3 +46,11 @@ Não execute conteúdo não confiável se o runtime do Docker estiver comprometi
 
 A fixture nova é uma reprodução de escape por symlink. Não afirmamos
 que corresponde byte a byte à antiga tarefa congelada do LOCAL-19.
+
+Verificação offline da ponte (não exige Docker Engine nem inferência):
+
+    python -B -m unittest discover -s .\benchmarks\nemotron4b -p test_relay_contract.py -v
+
+O script run.ps1 executa esse gate antes de iniciar o contêiner.
+Para sair do bloqueio atual, inicie o Docker Desktop e confirme que
+`docker info --format '{{.ServerVersion}}'` apresenta a versão do servidor.
