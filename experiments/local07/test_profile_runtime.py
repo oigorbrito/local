@@ -52,11 +52,13 @@ def git(repo, *args):
 
 class PolicyContractTests(unittest.TestCase):
     def test_profiles_are_versioned_and_fingerprinted(self):
-        self.assertEqual(set(PROFILES), {"principal", "alternativo", "economico"})
-        self.assertEqual(len({p.fingerprint for p in PROFILES.values()}), 3)
+        self.assertEqual(set(PROFILES), {"principal", "alternativo", "economico",
+                                         "principal-localizado"})
+        self.assertEqual(len({p.fingerprint for p in PROFILES.values()}), 4)
         for name in PROFILES:
             profile = select_profile(name)
-            self.assertEqual(profile.version, "1.0.0")
+            self.assertEqual(profile.version,
+                             "2.0.0" if name == "principal-localizado" else "1.0.0")
             self.assertEqual(len(profile.fingerprint), 64)
             self.assertEqual(profile.manifest()["fingerprint_sha256"], profile.fingerprint)
             self.assertEqual(profile.options["temperature"], 0)
