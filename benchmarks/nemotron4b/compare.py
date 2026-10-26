@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import statistics
 import subprocess
 import sys
@@ -147,6 +148,58 @@ def cloi_preflight_probe(model, identity):
     return 0 if passed else 2
 
 
+def cloi_startup_probe(model, identity):
+    """Execute pinned Cloi CLI but never allow model generation to leave Docker.
+
+    The parent relay rejects /api/chat and /api/generate before forwarding.
+    Session existence plus the expected diagnostic rejection attest startup.
+    """
+    out = OUTPUT / "cloi-startup-probe"
+    out.mkdir(exist_ok=False)
+    with tempfile.TemporaryDirectory(prefix="nemotron-startup-") as temp:
+        repo = prepare(Path(temp), "cloi-startup")
+        attempt = cloi(repo, model, out, 20)
+    save(out / "stdout.log", attempt["stdout"][-12000:])
+    save(out / "stderr.log", attempt["stderr"][-12000:])
+    dbfile = out / "cloi-data" / "cloi.db"
+    counts = {}
+    if dbfile.is_file():
+        try:
+            connection = sqlite3.connect(f"file:{dbfile}?mode=ro", uri=True, timeout=2)
+            try:
+                counts["sessions"] = connection.execute(
+                    "SELECT COUNT(*) FROM sessions").fetchone()[0]
+                counts["messages"] = dict(connection.execute(
+                    "SELECT role, COUNT(*) FROM messages GROUP BY role").fetchall())
+            finally:
+                connection.close()
+        except sqlite3.DatabaseError:
+            counts["sqlite_unreadable"] = True
+    expected_denial = "DIAGNOSTIC_GENERATION_BLOCKED" in (
+        attempt["stderr"] + attempt["stdout"])
+    reached_generation = expected_denial and counts.get("sessions", 0) >= 1
+    completed = reached_generation and not attempt["timeout"]
+    result = {
+        "schema": 1,
+        "status": "STARTUP_REACHED_GENERATION_GATE" if completed
+                  else "STARTUP_BLOCKED",
+        "mode": "CLOI_REAL_CLI_STARTUP_WITH_GENERATION_DENIED",
+        "model": identity,
+        "startup": {"completed": completed,
+                    "returncode": attempt["code"],
+                    "timed_out": attempt["timeout"],
+                    "seconds": attempt["seconds"],
+                    "session_database_present": dbfile.is_file(),
+                    "counts": counts,
+                    "generation_denial_observed": expected_denial},
+    }
+    (OUTPUT / "report.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps({"status": result["status"], "startup": result["startup"]}),
+          flush=True)
+    return 0 if completed else 2
+
+
 def grade(repo, out, attempt):
     changed = git(repo, "diff", "--name-only").splitlines()
     untracked = git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
@@ -193,8 +246,11 @@ def main():
     p.add_argument("--timeout", type=int, default=420)
     p.add_argument("--first-executor", choices=("local09", "cloi"),
                    default="local09")
-    p.add_argument("--probe-only", action="store_true",
-                   help="run Node Cloi preflight/JSON handshake, no model generation")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--probe-only", action="store_true",
+                       help="run Node Cloi preflight/JSON handshake, no generation")
+    group.add_argument("--startup-probe", action="store_true",
+                       help="run real Cloi CLI, with all generation blocked upstream")
     a = p.parse_args()
     if not 1 <= a.repeats <= 5 or not 60 <= a.timeout <= 420:
         p.error("repeats 1..5, timeout 60..420")
@@ -203,6 +259,8 @@ def main():
     identity = model_identity(a.model)
     if a.probe_only:
         return cloi_preflight_probe(a.model, identity)
+    if a.startup_probe:
+        return cloi_startup_probe(a.model, identity)
     records = []
     blocked = None
     for repetition in range(1, a.repeats+1):
