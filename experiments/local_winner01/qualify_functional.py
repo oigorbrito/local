@@ -155,7 +155,12 @@ def execute(case_id=PILOT):
     docker_status=call(["docker","info","--format","{{.ServerVersion}}"],20)
     if docker_status.returncode:
         raise RuntimeError("DOCKER_DAEMON_UNAVAILABLE")
-    image_id=docker_image(spec.image)
+    # Enriched Lite/dev rows carry legacy short image labels such as
+    # 'amd64.<instance_id>:latest', which are not published DockerHub refs.
+    # Resolve by the documented SWE-bench instance-image convention; the
+    # immutable pulled SHA is used in both arms. No fallback to arbitrary tags.
+    image_ref="swebench/sweb.eval.x86_64."+spec.instance_id.replace("__","_1776_")+":latest"
+    image_id=docker_image(image_ref)
     with tempfile.TemporaryDirectory(prefix="winner03-controls-") as td:
         base=docker_eval(spec,image_id,row["patch"],"baseline",td)
         # Do not spend another run if baseline could not even be parsed.
@@ -168,6 +173,7 @@ def execute(case_id=PILOT):
                gold.get("f2p_passed")==len(spec.FAIL_TO_PASS))
     status="FUNCTIONAL_ORACLE_QUALIFIED" if pass_gold else "BLOCKED_GOLD_NOT_RESOLVED"
     return {"status":status,"case_id":case_id,"image_id":image_id,
+            "resolved_image_ref":image_ref,
             "enriched_dataset_revision":ENRICHED_REVISION,
             "baseline":base,"gold":gold,
             "f2p_expected":len(spec.FAIL_TO_PASS),"p2p_expected":len(spec.PASS_TO_PASS),
