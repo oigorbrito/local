@@ -117,6 +117,36 @@ def cloi(repo, model, out, timeout):
                 "--model", model, "--yes", TASK],
                cwd=repo, timeout=timeout, env=env)
 
+def cloi_preflight_probe(model, identity):
+    """Bounded full-body decode through Cloi's Node provider, without inference."""
+    out = OUTPUT / "cloi-preflight-probe"
+    out.mkdir(exist_ok=False)
+    probe = run(
+        ["node", "/app/benchmarks/nemotron4b/cloi_probe.mjs", model],
+        timeout=15,
+        env={**os.environ, "CLOI_MODEL": model, "OLLAMA_HOST": OLLAMA},
+    )
+    save(out / "stdout.log", probe["stdout"][-12000:])
+    save(out / "stderr.log", probe["stderr"][-12000:])
+    stages = [line.strip() for line in probe["stderr"].splitlines()
+              if line.strip().startswith("PROBE_")]
+    passed = (probe["code"] == 0 and not probe["timeout"]
+              and "PROBE_PREFLIGHT_PASS" in stages)
+    report = {
+        "schema": 1, "status": "PROBE_PASS" if passed else "PROBE_BLOCKED",
+        "mode": "CLOI_NODE_PREFLIGHT_NO_GENERATION", "model": identity,
+        "probe": {"completed": passed, "returncode": probe["code"],
+                  "timed_out": probe["timeout"], "seconds": probe["seconds"],
+                  "stages": stages}
+    }
+    (OUTPUT / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(json.dumps({"status": report["status"], "probe": report["probe"]}),
+          flush=True)
+    return 0 if passed else 2
+
+
 def grade(repo, out, attempt):
     changed = git(repo, "diff", "--name-only").splitlines()
     untracked = git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
@@ -163,12 +193,16 @@ def main():
     p.add_argument("--timeout", type=int, default=420)
     p.add_argument("--first-executor", choices=("local09", "cloi"),
                    default="local09")
+    p.add_argument("--probe-only", action="store_true",
+                   help="run Node Cloi preflight/JSON handshake, no model generation")
     a = p.parse_args()
     if not 1 <= a.repeats <= 5 or not 60 <= a.timeout <= 420:
         p.error("repeats 1..5, timeout 60..420")
     if not OUTPUT.is_dir() or not SOURCE.is_dir():
         raise RuntimeError("MISSING_READONLY_REPO_OR_OUTPUT_VOLUME")
     identity = model_identity(a.model)
+    if a.probe_only:
+        return cloi_preflight_probe(a.model, identity)
     records = []
     blocked = None
     for repetition in range(1, a.repeats+1):
