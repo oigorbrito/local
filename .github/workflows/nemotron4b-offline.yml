@@ -53,3 +53,23 @@ jobs:
         run: |
           python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_patch_bytes.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Windows Git diff regression failed" }
+      - name: Parse and validate Windows benchmark entrypoints
+        shell: pwsh
+        run: |
+          foreach ($script in @('run.ps1', 'audit.ps1')) {
+            $path = (Resolve-Path "benchmarks/nemotron4b/$script").Path
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $path, [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if (@($errors).Count -ne 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell parsing failed for $script"
+            }
+          }
+          $cmd = Get-Command (Resolve-Path "benchmarks/nemotron4b/run.ps1").Path
+          if (-not $cmd.Parameters.ContainsKey('SqliteProbe')) {
+            throw "SqliteProbe parameter is not exposed"
+          }
+
