@@ -219,6 +219,35 @@ class WorkflowSessionTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "SESSION_FAILURE_EVIDENCE_INVALID"):
             status(self.session)
 
+    def test_anchor_failure_preserves_response_and_requires_new_session(self):
+        self.prepared()
+        payload = json.dumps({
+            "schema": 2, "file": "calculator.py",
+            "old": "return x + 404", "new": "return x + 2",
+        }).encode("utf-8")
+        with patch("profile_cli.generate", return_value=payload) as model:
+            with self.assertRaisesRegex(ContractError, "EDIT_ANCHOR_NOT_FOUND"):
+                generate(self.session, inspector=native_evidence)
+            model.assert_called_once()
+        self.assertEqual((self.session / RESPONSE).read_bytes(), payload)
+        self.assertFalse((self.session / REPORT).exists())
+        self.assertFalse((self.session / PATCH).exists())
+        evidence = json.loads((self.session / FAILURE).read_text())
+        self.assertEqual(evidence["phase"], "RESPONSE_VALIDATION")
+        self.assertEqual(evidence["category"], "CONTRACT")
+        self.assertTrue(evidence["model_delivery_confirmed"])
+        self.assertEqual(evidence["response_sha256"], hashlib.sha256(payload).hexdigest())
+        observed = status(self.session)
+        self.assertEqual(observed["status"], "GENERATION_INCOMPLETE_REQUIRES_NEW_SESSION")
+        self.assertTrue(observed["failure"]["model_delivery_confirmed"])
+        with patch("profile_cli.generate") as again:
+            with self.assertRaisesRegex(ContractError, "SESSION_ALREADY_GENERATED"):
+                generate(self.session, inspector=native_evidence)
+            again.assert_not_called()
+        (self.session / RESPONSE).write_bytes(b"tampered")
+        with self.assertRaisesRegex(ContractError, "SESSION_FAILURE_EVIDENCE_INVALID"):
+            status(self.session)
+
     def test_validation_failure_stage(self):
         self.prepared()
         with patch("profile_cli.generate", return_value=b'{"schema":3}') as model:
