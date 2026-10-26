@@ -122,6 +122,33 @@ class GuestUndiciTests(unittest.TestCase):
         )
 
 
+    def test_closed_broker_rejects_new_requests_without_waiting(self):
+        import time
+        relay_guest._broker_stdin_closed.set()
+        try:
+            with patch.object(relay_guest, "emit") as broker:
+                server = ThreadingHTTPServer(("127.0.0.1", 0), relay_guest.Bridge)
+                thread = threading.Thread(target=server.serve_forever, daemon=True)
+                thread.start()
+                try:
+                    conn = http.client.HTTPConnection(
+                        "127.0.0.1", server.server_address[1], timeout=3)
+                    start = time.monotonic()
+                    conn.request("GET", "/api/tags")
+                    response = conn.getresponse()
+                    body = response.read()
+                    self.assertEqual(response.status, 502)
+                    self.assertEqual(json.loads(body)["error"], "BROKER_PIPE_CLOSED")
+                    self.assertLess(time.monotonic() - start, 2)
+                    broker.assert_not_called()
+                    conn.close()
+                finally:
+                    server.shutdown()
+                    server.server_close()
+                    thread.join(timeout=3)
+        finally:
+            relay_guest._broker_stdin_closed.clear()
+
     def test_incomplete_metadata_fails_before_http_success_headers(self):
         def incomplete(frame):
             with relay_guest._pending_lock:
