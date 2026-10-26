@@ -75,7 +75,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     guard_output_locations(repo, [report_path, patch_path, response_json_path])
     before = provenance(repo)
     issue = json.loads(pathlib.Path(issue_json).read_text(encoding="utf-8"))["problem_statement"]
-    request = prepare(repo, issue)
+    request = prepare(repo, issue, output_schema=profile.output_schema)
 
     def preserve_response(payload):
         """Persist bounded returned bytes before source and patch validation."""
@@ -102,7 +102,8 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     stage('RESPONSE_VALIDATION')
     if before != provenance(repo):
         raise ContractError("SOURCE_CHANGED_DURING_GENERATION")
-    validation, patch = replay(repo, issue, payload)
+    validation, patch = replay(repo, issue, payload,
+                               output_schema=profile.output_schema)
     validation["execution"] = {
         "mode": mode, "model_invoked": mode == "local_inference",
         "selected_profile": profile.manifest(),
