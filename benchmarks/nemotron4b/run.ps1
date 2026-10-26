@@ -15,6 +15,8 @@ if ($results.StartsWith($repo + [IO.Path]::DirectorySeparatorChar,
       [StringComparison]::OrdinalIgnoreCase)) {
   throw "Resultados devem ficar fora do checkout."
 }
+& python -B -m unittest discover -s $dir -p 'test_relay_contract.py' -v
+if ($LASTEXITCODE -ne 0) { throw 'Contrato da ponte Ollama falhou; nao iniciar Docker.' }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw "Docker ausente." }
 docker info --format '{{.ServerVersion}}' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Docker Desktop indisponivel." }
