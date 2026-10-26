@@ -10,8 +10,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import queue
+import re
 import sys
 import threading
+import time
 import uuid
 
 LIMIT = 2 * 1024 * 1024
@@ -21,7 +23,40 @@ _out = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
 _write_lock = threading.Lock()
 _pending = {}
 _pending_lock = threading.Lock()
+_meta_ids = set()
+_event_lock = threading.Lock()
+GUEST_EVENTS = "/results/guest-bridge-events.jsonl"
 _timeout = 450
+
+
+def record_guest_event(request_id, event, *, kind=None, status=None, code=None):
+    """Durable, content-free guest receipt and metadata response stages.
+
+    Event values are finite vocabulary; never persist HTTP bodies, prompt text,
+    tool arguments, headers, or exception messages. The journal is a diagnostic
+    side channel only: inability to save it cannot change HTTP semantics.
+    """
+    if event not in {
+        "request_emitted", "stdin_reply_received", "stdin_reply_unmatched",
+        "stdin_pipe_closed", "metadata_start", "metadata_chunk",
+        "metadata_end", "metadata_error", "metadata_response_sent",
+    }:
+        raise ValueError("UNKNOWN_GUEST_DIAGNOSTIC_EVENT")
+    record = {"id": request_id, "stage": event,
+              "monotonic_ms": round(time.monotonic() * 1000)}
+    if kind in {"start", "chunk", "end", "error"}:
+        record["kind"] = kind
+    if isinstance(status, int) and 100 <= status <= 599:
+        record["status"] = status
+    if isinstance(code, str) and re.fullmatch(r"[A-Z_]{3,60}", code):
+        record["code"] = code
+    try:
+        with _event_lock:
+            with open(GUEST_EVENTS, "a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except OSError:
+        pass
+
 
 
 def emit(frame):
@@ -34,15 +69,25 @@ def receive():
     for line in sys.stdin:
         try:
             frame = json.loads(line)
+            rid = frame.get("id")
             with _pending_lock:
-                inbox = _pending.get(frame.get("id"))
+                inbox = _pending.get(rid)
+                meta = rid in _meta_ids
+            if meta:
+                record_guest_event(rid, "stdin_reply_received" if inbox
+                                   else "stdin_reply_unmatched",
+                                   kind=frame.get("kind"),
+                                   status=frame.get("status"))
             if inbox:
                 inbox.put(frame)
         except (ValueError, TypeError):
             continue
     with _pending_lock:
-        all_queues = list(_pending.values())
-    for inbox in all_queues:
+        all_queues = list(_pending.items())
+        metadata_ids = set(_meta_ids)
+    for rid, inbox in all_queues:
+        if rid in metadata_ids:
+            record_guest_event(rid, "stdin_pipe_closed")
         inbox.put({"kind": "error", "status": 502, "message": "BROKER_PIPE_CLOSED"})
 
 
@@ -61,7 +106,7 @@ class Bridge(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.send_error(403, "METHOD_NOT_ALLOWED")
 
-    def metadata(self, inbox):
+    def metadata(self, inbox, request_id):
         """Buffer small fixed metadata replies before sending HTTP 200.
 
         The pinned Cloi isReachable() intentionally checks headers without
@@ -86,21 +131,34 @@ class Bridge(BaseHTTPRequestHandler):
             if kind == "error":
                 failure_status = int(frame.get("status", 502))
                 failure_message = str(frame.get("message", "BROKER_ERROR"))[:180]
+                # Record only a known symbolic cause, never upstream message text.
+                raw_code = failure_message
+                code = raw_code if re.fullmatch(r"[A-Z_]{3,60}", raw_code) else "BROKER_ERROR_FRAME"
+                record_guest_event(request_id, "metadata_error",
+                                   kind=kind, status=failure_status, code=code)
                 break
             if kind == "start" and status is None:
                 status = int(frame.get("status", 200))
+                record_guest_event(request_id, "metadata_start",
+                                   kind=kind, status=status)
             elif kind == "chunk" and status is not None:
+                record_guest_event(request_id, "metadata_chunk", kind=kind)
                 raw = base64.b64decode(frame["body"], validate=True)
                 if len(payload) + len(raw) > META_LIMIT:
                     failure_status = 502
                     failure_message = "METADATA_RESPONSE_TOO_LARGE"
+                    record_guest_event(request_id, "metadata_error",
+                                       code=failure_message)
                     break
                 payload.extend(raw)
             elif kind == "end" and status is not None:
+                record_guest_event(request_id, "metadata_end", kind=kind)
                 break
             else:
                 failure_status = 502
                 failure_message = "BROKER_METADATA_FRAME_INVALID"
+                record_guest_event(request_id, "metadata_error",
+                                   code=failure_message, kind=kind)
                 break
         if failure_status is not None:
             # Never emit a half-successful HTTP 200 with an incomplete body.
@@ -119,6 +177,7 @@ class Bridge(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         self.wfile.flush()
+        record_guest_event(request_id, "metadata_response_sent", status=status)
 
     def bridge(self):
         try:
@@ -133,12 +192,15 @@ class Bridge(BaseHTTPRequestHandler):
             inbox = queue.Queue()
             with _pending_lock:
                 _pending[request_id] = inbox
+                if self.path in META_PATHS:
+                    _meta_ids.add(request_id)
             try:
                 emit({"kind": "request", "id": request_id,
                       "method": self.command, "path": self.path,
                       "body": base64.b64encode(body).decode("ascii")})
                 if self.path in META_PATHS:
-                    self.metadata(inbox)
+                    record_guest_event(request_id, "request_emitted")
+                    self.metadata(inbox, request_id)
                     return
                 headers_sent = False
                 while True:
@@ -188,6 +250,7 @@ class Bridge(BaseHTTPRequestHandler):
             finally:
                 with _pending_lock:
                     _pending.pop(request_id, None)
+                    _meta_ids.discard(request_id)
         except (OSError, ValueError, KeyError) as exc:
             self.close_connection = True
             print("GUEST_BRIDGE_ERROR: " + type(exc).__name__, file=sys.stderr)
