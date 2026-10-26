@@ -17,6 +17,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Validate sanitized Docker diagnostics offline
+        run: python -B -m unittest discover -s experiments/local_winner01 -p 'test_docker_diagnostics.py' -v
       - name: Verify runner and install pinned official SWE-bench evaluator
         run: |
           docker info --format '{{.ServerVersion}}'

@@ -19,6 +19,8 @@ from select_cases import freeze, extract, hash_bytes
 from datasets import load_dataset
 from swebench.harness.utils import make_test_spec
 from swebench.harness.grading import get_eval_report
+from swebench.harness.constants import START_TEST_OUTPUT, END_TEST_OUTPUT
+from docker_diagnostics import classify_output, inspect_snapshot, exit_origin
 from swebench.image_builder.constants import CONTAINER_WORKDIR
 
 PILOT = "pvlib__pvlib-python-1854"
@@ -67,11 +69,22 @@ def docker_eval(spec, image_id, gold_patch, mode, scratch):
           "--cpus","2","--memory","3g","--user",uid,
           "--tmpfs","/tmp:rw,nosuid,nodev,size=256m",
           "--workdir",CONTAINER_WORKDIR,
-          "--entrypoint","/bin/bash", image_id,"-lc",shell]
-    result=call(args,60)
-    if result.returncode or not result.stdout.strip():
-        raise RuntimeError("ISOLATED_CONTAINER_CREATION_FAILED")
-    name=result.stdout.strip()
+          "--entrypoint","/bin/bash",image_id,"-lc",shell]
+    stages=[]
+    def stage_record(step, proc, seconds):
+        output=proc.stdout+"\n"+proc.stderr
+        stages.append({"stage":step,"exit":proc.returncode,
+                       "seconds":round(seconds,2),
+                       "output_sha256":hash_bytes(output.encode("utf-8"))})
+        return output
+    begin=time.monotonic()
+    created=call(args,60)
+    diagnostic=stage_record("docker_create",created,time.monotonic()-begin)
+    if created.returncode or not created.stdout.strip():
+        return {"mode":mode,"status":"CONTAINER_CREATE_FAILED",
+                "stage":"docker_create","docker_exit":created.returncode,
+                "failure_signature":classify_output(diagnostic),"stages":stages}
+    name=created.stdout.strip()
     temp=Path(scratch)
     evalsh=temp/("eval-"+mode+".sh")
     evalsh.write_text(spec.eval_script,encoding="utf-8")
@@ -79,27 +92,44 @@ def docker_eval(spec, image_id, gold_patch, mode, scratch):
         patch=temp/"private-gold.patch"
         patch.write_text(gold_patch,encoding="utf-8")
     try:
-        steps=[["docker","cp",str(evalsh),name+":/eval.sh"]]
+        steps=[("docker_cp_eval",["docker","cp",str(evalsh),name+":/eval.sh"])]
         if mode=="gold":
-            steps.append(["docker","cp",str(patch),name+":/model.patch"])
-        for cmd in steps:
+            steps.append(("docker_cp_gold",["docker","cp",str(patch),name+":/model.patch"]))
+        for step,cmd in steps:
+            begin=time.monotonic()
             cp=call(cmd,60)
+            diagnostic=stage_record(step,cp,time.monotonic()-begin)
             if cp.returncode:
-                raise RuntimeError("CONTAINER_STAGING_FAILED")
-        # The command/test runner operates only inside the non-root,
-        # no-network, cap-drop, resource-capped, throwaway container.
-        start=time.monotonic()
+                return {"mode":mode,"status":"CONTAINER_STAGING_FAILED",
+                        "stage":step,"docker_exit":cp.returncode,
+                        "failure_signature":classify_output(diagnostic),"stages":stages}
+        begin=time.monotonic()
+        timed_out=False
         try:
             launch=call(["docker","start","--attach",name],MAX_TEST_SECONDS+20)
+            output=stage_record("docker_start_attach",launch,time.monotonic()-begin)
         except subprocess.TimeoutExpired:
-            return {"mode":mode,"status":"TEST_TIMEOUT","seconds":round(time.monotonic()-start,2)}
-        elapsed=round(time.monotonic()-start,2)
-        output=launch.stdout+"\n"+launch.stderr
+            timed_out=True
+            output=""
+            stages.append({"stage":"docker_start_attach","exit":None,
+                           "seconds":round(time.monotonic()-begin,2),"timeout":True})
+        inspect_cmd=call(["docker","inspect","--format","{{json .State}}",name],30)
+        stage_record("docker_inspect",inspect_cmd,0)
+        state=inspect_snapshot(inspect_cmd.stdout,inspect_cmd.returncode)
+        if timed_out:
+            return {"mode":mode,"status":"TEST_TIMEOUT","stages":stages,
+                    "container_state":state}
+        elapsed=round(time.monotonic()-begin,2)
         private_log=temp/("private-"+mode+"-test.log")
         private_log.write_text(output,encoding="utf-8")
         out={"mode":mode,"status":"TEST_OUTPUT_CAPTURED",
              "docker_exit":launch.returncode,"seconds":elapsed,
-             "test_log_sha256":hash_bytes(output.encode("utf-8"))}
+             "test_log_sha256":hash_bytes(output.encode("utf-8")),
+             "stages":stages,"container_state":state,
+             "exit_origin":exit_origin(launch.returncode,state),
+             "failure_signature":classify_output(output) if launch.returncode else None,
+             "test_markers":{"start":START_TEST_OUTPUT in output,
+                             "end":END_TEST_OUTPUT in output}}
         try:
             model_name=f"control-{mode}"
             pred={"instance_id":spec.instance_id,"model_name_or_path":model_name,
