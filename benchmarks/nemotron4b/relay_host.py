@@ -77,6 +77,25 @@ def record_request_start(metrics_path, item, phase):
     return True
 
 
+def record_request_progress(metrics_path, ident, phase, stage, elapsed_seconds,
+                            response_bytes=0, http_status=None):
+    """Record bounded, content-free stages while a request is still in flight.
+
+    Terminal metrics may never be written after a subprocess wall timeout. This
+    journal lets us distinguish blocked connect/headers from slow generation.
+    """
+    record = {
+        "request_id": ident, "phase": phase, "stage": stage,
+        "elapsed_seconds": round(elapsed_seconds, 3),
+        "response_bytes": response_bytes, "http_status": http_status,
+    }
+    with _stdout_lock:
+        with (metrics_path.parent / "relay-request-events.jsonl").open(
+            "a", encoding="utf-8"
+        ) as stream:
+            stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+
+
 def forward(proc, item, model, timeout, metrics_path, phase):
     ident = item.get("id")
     if not isinstance(ident, str) or len(ident) != 32:
@@ -90,6 +109,8 @@ def forward(proc, item, model, timeout, metrics_path, phase):
     response_complete = False
     error_type = None
     payload_bytes = 0
+    chunks_seen = 0
+    last_progress_at = started_at
     collected = bytearray()
     raw_record = None
     try:
@@ -101,7 +122,12 @@ def forward(proc, item, model, timeout, metrics_path, phase):
         connection.request(method, path, body=body, headers={
             "Content-Type": "application/json", "Connection": "close"
         })
+        record_request_progress(metrics_path, ident, phase, "upstream_request_sent",
+                                time.monotonic() - started_at)
         response = connection.getresponse()
+        record_request_progress(metrics_path, ident, phase, "upstream_headers_received",
+                                time.monotonic() - started_at,
+                                http_status=response.status)
         send(proc, {"kind": "start", "id": ident, "status": response.status})
         status = str(response.status)
         while True:
@@ -109,6 +135,15 @@ def forward(proc, item, model, timeout, metrics_path, phase):
             if not chunk:
                 break
             payload_bytes += len(chunk)
+            chunks_seen += 1
+            now = time.monotonic()
+            if chunks_seen == 1 or now - last_progress_at >= 15:
+                record_request_progress(
+                    metrics_path, ident, phase,
+                    "upstream_first_chunk" if chunks_seen == 1 else "upstream_stream_progress",
+                    now - started_at, response_bytes=payload_bytes,
+                    http_status=response.status)
+                last_progress_at = now
             if path in ("/api/generate", "/api/chat"):
                 collected.extend(chunk)
             if payload_bytes > MAX_REPLY:
@@ -119,6 +154,11 @@ def forward(proc, item, model, timeout, metrics_path, phase):
                 try:
                     data = json.loads(chunk)
                     if data.get("done"):
+                        record_request_progress(metrics_path, ident, phase,
+                                                "upstream_model_done",
+                                                time.monotonic() - started_at,
+                                                response_bytes=payload_bytes,
+                                                http_status=response.status)
                         usage_available = ("prompt_eval_count" in data
                                            and "eval_count" in data)
                         prompt_tokens = data.get("prompt_eval_count") or 0
@@ -136,6 +176,9 @@ def forward(proc, item, model, timeout, metrics_path, phase):
                 pass
         send(proc, {"kind": "end", "id": ident})
         response_complete = True
+        record_request_progress(metrics_path, ident, phase, "guest_end_forwarded",
+                                time.monotonic() - started_at,
+                                response_bytes=payload_bytes, http_status=response.status)
     except (OSError, ValueError, TypeError, KeyError) as exc:
         error_type = type(exc).__name__
         try:
