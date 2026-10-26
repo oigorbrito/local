@@ -17,7 +17,7 @@ if ($results.StartsWith($repo + [IO.Path]::DirectorySeparatorChar,
   throw "Resultados devem ficar fora do checkout."
 }
 & python -B -m unittest discover -s $dir -p 'test_relay_*.py' -v
-if ($LASTEXITCODE -ne 0) { throw 'Contrato da ponte Ollama falhou; nao iniciar Docker.' }
+if ($LASTEXITCODE -ne 0) { throw 'Falha nos testes offline LOCAL-27 (veja o teste e o traceback acima). Nenhuma inferencia foi iniciada.' }
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { throw "Docker ausente." }
 docker info --format '{{.ServerVersion}}' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Docker Desktop indisponivel." }
