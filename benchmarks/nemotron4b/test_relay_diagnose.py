@@ -52,7 +52,32 @@ class DiagnosisTests(unittest.TestCase):
             self.assertEqual(phase["requests_started"], 1)
             self.assertEqual(phase["requests_recorded"], 0)
             self.assertEqual(phase["unfinished_at_collection"][0]["path"], "/api/chat")
+            self.assertIn("no progress-stage events", diag["limitation"])
+
+    def test_unfinished_request_records_last_progress_stage_without_model_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_results(root)
+            item = {"id": "c" * 32, "method": "POST",
+                    "path": "/api/chat", "body": "SECRET_PROMPT"}
+            self.assertTrue(relay_host.record_request_start(
+                root / "relay-request-metrics.jsonl", item, "r01-cloi"))
+            relay_host.record_request_progress(
+                root / "relay-request-metrics.jsonl", "c" * 32, "r01-cloi",
+                "upstream_request_sent", 0.15)
+            relay_host.record_request_progress(
+                root / "relay-request-metrics.jsonl", "c" * 32, "r01-cloi",
+                "upstream_headers_received", 90.0, http_status=200)
+            relay_host.record_request_progress(
+                root / "relay-request-metrics.jsonl", "c" * 32, "r01-cloi",
+                "upstream_first_chunk", 94.0, response_bytes=30, http_status=200)
+            diag = diagnose.analyze(root)
+            phase = diag["phases"][0]
+            self.assertEqual(len(phase["request_events"]), 3)
+            self.assertEqual(phase["request_events"][-1]["stage"], "upstream_first_chunk")
+            self.assertEqual(phase["unfinished_at_collection"][0]["path"], "/api/chat")
             self.assertIsNone(diag["limitation"])
+            self.assertNotIn("SECRET_PROMPT", json.dumps(diag))
 
     def test_raw_ndjson_attests_completion_without_exposing_content(self):
         with tempfile.TemporaryDirectory() as tmp:
