@@ -89,6 +89,8 @@ class Bridge(BaseHTTPRequestHandler):
                             self.send_response(int(frame.get("status", 502)))
                             self.send_header("Content-Type", "application/json")
                             self.send_header("Content-Length", str(len(msg)))
+                            self.send_header("Connection", "close")
+                            self.close_connection = True
                             self.end_headers()
                             self.wfile.write(msg)
                         else:
@@ -98,6 +100,11 @@ class Bridge(BaseHTTPRequestHandler):
                         self.send_response(int(frame.get("status", 200)))
                         self.send_header("Content-Type", "application/json")
                         self.send_header("Transfer-Encoding", "chunked")
+                        # Cloi's reachability check reads only response headers.
+                        # Explicitly end this response's TCP lifetime to prevent
+                        # reusing a socket with a body the client never consumed.
+                        self.send_header("Connection", "close")
+                        self.close_connection = True
                         self.end_headers()
                         headers_sent = True
                     elif kind == "chunk" and headers_sent:
