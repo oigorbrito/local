@@ -124,11 +124,29 @@ def grade(repo, out, attempt):
     save(out / "result.patch", patch)
     verification = tests(repo)
     save(out / "independent-tests.log", verification["stdout"] + verification["stderr"])
-    return {"passed": attempt["code"] == 0 and not attempt["timeout"]
-            and changed == ["guard.py"] and not untracked
-            and bool(patch.strip()) and verification["code"] == 0,
+    functional = (changed == ["guard.py"] and not untracked
+                  and bool(patch.strip()) and verification["code"] == 0)
+    # Code correctness and process reliability are separate experimental outcomes.
+    # A process that exits nonzero after writing a correct patch must not be
+    # mis-scored as a failed patch; its process failure remains visible.
+    return {"passed": functional, "functional_passed": functional,
+            "executor_completed": attempt["code"] == 0 and not attempt["timeout"],
             "changed_files": changed, "untracked_files": untracked,
             "external_tests_passed": verification["code"] == 0}
+
+
+def infrastructure_failure(attempt):
+    """Stop a paired experiment when Ollama/transport state may contaminate later arms."""
+    if attempt["timeout"]:
+        return "EXECUTOR_WALL_TIMEOUT"
+    stderr = attempt.get("stderr", "")
+    if "TimeoutError: timed out" in stderr or "BROKER_TIMEOUT" in stderr:
+        return "OLLAMA_REQUEST_TIMEOUT"
+    if ("Cannot reach Ollama at" in stderr or "BROKER_PIPE_CLOSED" in stderr
+            or "OLLAMA_NOT_REACHABLE" in stderr):
+        return "OLLAMA_UNREACHABLE"
+    return None
+
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -142,6 +160,7 @@ def main():
         raise RuntimeError("MISSING_READONLY_REPO_OR_OUTPUT_VOLUME")
     identity = model_identity(a.model)
     records = []
+    blocked = None
     for repetition in range(1, a.repeats+1):
         for arm in (("local09", "cloi") if repetition % 2 else ("cloi", "local09")):
             name = "r%02d-%s" % (repetition, arm)
@@ -167,14 +186,24 @@ def main():
                 print(json.dumps({"executor": arm, "repeat": repetition,
                                   "passed": row["passed"], "seconds": row["wall_seconds"]}),
                       flush=True)
-    summary = {
-        arm: {"passed": sum(r["passed"] for r in records if r["executor"] == arm),
-              "total": a.repeats,
-              "median_seconds": round(statistics.median(
-                  r["wall_seconds"] for r in records if r["executor"] == arm), 3)}
-        for arm in ("local09", "cloi")
-    }
-    report = {"schema": 1, "status": "MEASURED_NOT_RANKED", "model": identity,
+                reason = infrastructure_failure(attempt)
+                if reason:
+                    blocked = {"reason": reason, "executor": arm, "repeat": repetition}
+                    print(json.dumps({"status": "BLOCKED_AFTER_ATTEMPT", **blocked}),
+                          file=sys.stderr, flush=True)
+                    break
+        if blocked:
+            break
+    summary = {}
+    for arm in ("local09", "cloi"):
+        subset = [r for r in records if r["executor"] == arm]
+        summary[arm] = {"passed": sum(r["passed"] for r in subset),
+                        "total": len(subset), "requested": a.repeats,
+                        "median_seconds": (round(statistics.median(
+                            r["wall_seconds"] for r in subset), 3) if subset else None)}
+    report = {"schema": 2, "status": (
+              "BLOCKED_TRANSPORT_OR_TIMEOUT" if blocked else "MEASURED_NOT_RANKED"),
+              "blocking": blocked, "model": identity,
               "suite": "symlink-escape-v1", "prompt": TASK, "summary": summary,
               "config": {"num_ctx": 4096, "temperature": 0,
                          "local09_num_predict": 2048,
@@ -185,6 +214,8 @@ def main():
     (OUTPUT / "report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"summary": summary, "report": "/results/report.json"}))
+    if blocked:
+        return 2
     return 0 if all(r["passed"] for r in records) else 1
 
 if __name__ == "__main__":
