@@ -38,3 +38,16 @@ jobs:
               assert "Ran 6 tests" in p.stderr
               assert "FAILED (failures=4)" in p.stderr, p.stderr
           PY
+
+  windows-patch-bytes:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 pinned
+        with:
+          persist-credentials: false
+      - name: Regress raw Git diff handling on Windows (no Ollama, Docker or GPU)
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_patch_bytes.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Windows Git diff regression failed" }
