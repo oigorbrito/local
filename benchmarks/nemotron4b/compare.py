@@ -28,6 +28,7 @@ def run(command, cwd=None, timeout=40, env=None):
     start = time.monotonic()
     try:
         proc = subprocess.run(command, cwd=cwd, text=True, capture_output=True,
+                              stdin=subprocess.DEVNULL,
                               timeout=timeout, env=env)
         return {"code": proc.returncode, "seconds": round(time.monotonic()-start, 3),
                 "stdout": proc.stdout, "stderr": proc.stderr, "timeout": False}
