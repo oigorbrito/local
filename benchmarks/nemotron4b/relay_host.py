@@ -239,9 +239,10 @@ def main():
                         default="local09")
     parser.add_argument("--probe-only", action="store_true")
     parser.add_argument("--startup-probe", action="store_true")
+    parser.add_argument("--sqlite-probe", action="store_true")
     args = parser.parse_args()
-    if args.probe_only and args.startup_probe:
-        parser.error("probe-only and startup-probe are mutually exclusive")
+    if sum((args.probe_only, args.startup_probe, args.sqlite_probe)) > 1:
+        parser.error("diagnostic probes are mutually exclusive")
     if not 1 <= args.repeats <= 5 or not 60 <= args.timeout <= 420:
         parser.error("repeats 1..5; timeout 60..420")
     benchmark = require_path(args.benchmark_dir)
@@ -269,6 +270,8 @@ def main():
         cmd.append("--probe-only")
     if args.startup_probe:
         cmd.append("--startup-probe")
+    if args.sqlite_probe:
+        cmd.append("--sqlite-probe")
     workers = []
     phase = "preflight"
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
