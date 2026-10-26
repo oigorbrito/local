@@ -4,4 +4,4 @@ RUN git clone https://github.com/gabrielchasukjin/cloi.git /opt/cloi && cd /opt/
 USER node
 ENV HOME=/tmp/local-home CLOI_DATA_DIR=/tmp/local-home/cloi PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
-ENTRYPOINT ["python3", "/app/benchmarks/nemotron4b/compare.py"]
+ENTRYPOINT ["python3", "/app/benchmarks/nemotron4b/relay_guest.py"]
