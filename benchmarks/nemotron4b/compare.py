@@ -201,6 +201,54 @@ def cloi_startup_probe(model, identity):
     return 0 if completed else 2
 
 
+def cloi_sqlite_probe(model, identity):
+    """Compare upstream Session.create WAL startup on the mounted volume vs tmpfs.
+
+    Both subprocesses run the same pinned Cloi module with the same model, CPU
+    and Node version; only CLOI_DATA_DIR changes. No agent or model call runs.
+    """
+    os.write(1, b'{"kind":"phase","name":"cloi-sqlite-probe"}\n')
+    out = OUTPUT / "cloi-sqlite-probe"
+    out.mkdir(exist_ok=False)
+    trials = {}
+    with tempfile.TemporaryDirectory(prefix="cloi-sqlite-tmpfs-") as temp:
+        locations = (("mounted-results", out / "mounted-data"),
+                     ("tmpfs", Path(temp) / "data"))
+        for kind, data in locations:
+            probe = run(
+                ["node", "/app/benchmarks/nemotron4b/cloi_sqlite_probe.mjs",
+                 str(data), model],
+                timeout=8,
+                env={**os.environ, "CLOI_DATA_DIR": str(data)},
+            )
+            save(out / (kind + ".stdout.log"), probe["stdout"][-8000:])
+            save(out / (kind + ".stderr.log"), probe["stderr"][-8000:])
+            stages = [line.strip() for line in probe["stderr"].splitlines()
+                      if line.strip().startswith("SQLITE_")]
+            passed = (probe["code"] == 0 and not probe["timeout"]
+                      and "SQLITE_PROBE_PASS" in stages)
+            trials[kind] = {
+                "passed": passed, "returncode": probe["code"],
+                "timed_out": probe["timeout"], "seconds": probe["seconds"],
+                "stages": stages,
+                "database_present": (data / "cloi.db").is_file(),
+            }
+    if trials["mounted-results"]["passed"] and trials["tmpfs"]["passed"]:
+        status = "SQLITE_BOTH_PASS"
+    elif trials["tmpfs"]["passed"] and not trials["mounted-results"]["passed"]:
+        status = "SQLITE_MOUNT_SUSPECTED"
+    else:
+        status = "SQLITE_NOT_ISOLATED"
+    result = {"schema": 1, "status": status,
+              "mode": "CLOI_UPSTREAM_SQLITE_WAL_NO_GENERATION",
+              "model": identity, "sqlite": trials}
+    (OUTPUT / "report.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8")
+    print(json.dumps({"status": status, "sqlite": trials}), flush=True)
+    return 0 if status == "SQLITE_BOTH_PASS" else 2
+
+
 def grade(repo, out, attempt):
     changed = git(repo, "diff", "--name-only").splitlines()
     untracked = git(repo, "ls-files", "--others", "--exclude-standard").splitlines()
@@ -252,6 +300,8 @@ def main():
                        help="run Node Cloi preflight/JSON handshake, no generation")
     group.add_argument("--startup-probe", action="store_true",
                        help="run real Cloi CLI, with all generation blocked upstream")
+    group.add_argument("--sqlite-probe", action="store_true",
+                       help="compare pinned Cloi SQLite startup on mounted volume vs tmpfs")
     a = p.parse_args()
     if not 1 <= a.repeats <= 5 or not 60 <= a.timeout <= 420:
         p.error("repeats 1..5, timeout 60..420")
@@ -262,6 +312,8 @@ def main():
         return cloi_preflight_probe(a.model, identity)
     if a.startup_probe:
         return cloi_startup_probe(a.model, identity)
+    if a.sqlite_probe:
+        return cloi_sqlite_probe(a.model, identity)
     records = []
     blocked = None
     for repetition in range(1, a.repeats+1):
