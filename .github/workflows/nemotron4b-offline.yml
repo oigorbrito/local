@@ -23,6 +23,7 @@ jobs:
           python3 -B -m py_compile benchmarks/nemotron4b/*.py
           python3 -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_*.py' -v
           node --check benchmarks/nemotron4b/cloi_probe.mjs
+          node --check benchmarks/nemotron4b/cloi_sqlite_probe.mjs
       - name: Verify vulnerable baseline has the expected failing oracle
         run: |
           python3 -B - <<'PY'
