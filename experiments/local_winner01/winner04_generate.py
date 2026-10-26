@@ -8,6 +8,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import time
 import urllib.request
 from winner04_preflight import CASES, oracle_valid
@@ -83,6 +84,12 @@ def run(args):
         if issue.get("base_commit") != cases[idx].get("base_commit"):
             raise RuntimeError("ISSUE_BASE_DRIFT")
         snapshot=args.snapshots/case
+        if not (snapshot/".git").exists():
+            raise RuntimeError("SNAPSHOT_NOT_GIT_REPOSITORY:"+case)
+        head=subprocess.run(["git","-C",str(snapshot),"rev-parse","HEAD"],capture_output=True,text=True,check=False)
+        dirty=subprocess.run(["git","-C",str(snapshot),"status","--porcelain","--untracked-files=all"],capture_output=True,text=True,check=False)
+        if head.returncode or head.stdout.strip()!=issue["base_commit"] or dirty.returncode or dirty.stdout.strip():
+            raise RuntimeError("SNAPSHOT_BASE_OR_CLEANLINESS_MISMATCH:"+case)
         prompt,sources=prompt_for(issue,snapshot)
         if sha(issue["problem_statement"].encode("utf-8")) != cases[idx]["prompt_sha256"]:
             raise RuntimeError("ISSUE_PROMPT_DRIFT")
