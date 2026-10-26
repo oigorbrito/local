@@ -1,5 +1,4 @@
 """Offline checks for the no-network Ollama bridge contract. No Ollama/Docker calls."""
-import base64
 import json
 import unittest
 
@@ -38,8 +37,9 @@ class RelayContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate("GET", "/api/tags", b"credentials", MODEL)
         body = json.dumps({"model": MODEL}).encode()
-        self.assertEqual(validate("POST", "/api/show", body, MODEL),
-                         (body, False))
+        wrapped, streamed = validate("POST", "/api/show", body, MODEL)
+        self.assertEqual(json.loads(wrapped), {"model": MODEL})
+        self.assertFalse(streamed)
 
     def test_oversized_and_invalid_inputs_rejected(self):
         with self.assertRaises(ValueError):
