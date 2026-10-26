@@ -68,7 +68,7 @@ class StaticQualificationTests(unittest.TestCase):
         with patch.object(q,"run_git",return_value=MagicMock(returncode=128,stderr="FAIL")):
             out=q.validate_case("owner/repo","a"*40,diff(),diff())
         self.assertEqual(out["status"],"FETCH_FAILED")
-        self.assertNotIn("FAIL",json.dumps(out))
+        self.assertNotIn("stderr",out)
 
     def test_model_input_not_created_by_static_module(self):
         self.assertFalse(hasattr(q,"call_ollama"))
