@@ -153,23 +153,58 @@ def integrity(reports):
                           "expected_sha256": h, "actual_sha256": linked["sha256"] if linked else None})
     return links
 
+HISTORIC_BASES = {
+    ("marshmallow-code/marshmallow", "2be2d83a1a9a6d3d9b85804f3ab545cecc409bb0"): "marshmallow-code__marshmallow-1343",
+    ("marshmallow-code/marshmallow", "b40a0f4e33823e6d0f341f7e8684e359a99060d1"): "marshmallow-code__marshmallow-1359",
+    ("pvlib/pvlib-python", "04a523fafbd61bc2e49420963b84ed8e2bd1b3cf"): "pvlib__pvlib-python-1072",
+}
+VALID_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+VALID_SHA1 = re.compile(r"^[0-9a-f]{40}$")
+VALID_REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
 def proposed_tasks(items):
     old = {x.lower(): family for family,names in KNOWN.items() for x in names}
     old.update({"brackets": "python-v1", "dedupe": "python-v1", "logparse": "python-v1"})
+    if not isinstance(items, list) or len(items) > 100:
+        raise ValueError("INVALID_PROPOSED_TASKS_LIST")
     seen = set()
+    seen_bases = set()
+    seen_prompts = set()
+    seen_oracles = set()
     output = []
     for row in items:
         needed = ("case_id","source_repo","base_commit","prompt_sha256","oracle_sha256")
-        if not isinstance(row,dict) or any(not isinstance(row.get(k),str) or not row[k] for k in needed):
+        if not isinstance(row,dict) or any(not isinstance(row.get(k),str) or not row[k].strip() for k in needed):
             raise ValueError("INCOMPLETE_CASE_IDENTITY")
+        if (not VALID_REPO.fullmatch(row["source_repo"]) or
+                not VALID_SHA1.fullmatch(row["base_commit"]) or
+                not VALID_SHA256.fullmatch(row["prompt_sha256"]) or
+                not VALID_SHA256.fullmatch(row["oracle_sha256"])):
+            raise ValueError("INVALID_CASE_IDENTITY_FORMAT")
+        if len(row["case_id"]) > 160:
+            raise ValueError("CASE_ID_TOO_LONG")
         name = row["case_id"].lower()
-        status = "EXISTING_HISTORICAL_TASK" if name in old else "DUPLICATE_IN_PROPOSED_SET" if name in seen else "NEW_UNVERIFIED"
+        base_key = (row["source_repo"].lower(), row["base_commit"])
+        status = "EXISTING_HISTORICAL_TASK" if name in old else "NEW_UNVERIFIED"
         match = old.get(name)
+        if status == "NEW_UNVERIFIED" and base_key in HISTORIC_BASES:
+            status, match = "EXISTING_HISTORICAL_BASE", HISTORIC_BASES[base_key]
         for key in ("prompt_sha256", "oracle_sha256"):
             if status == "NEW_UNVERIFIED" and row[key] in FINGERPRINTS[key]:
-                status = "SAME_" + key.upper()
-                match = FINGERPRINTS[key][row[key]]
+                status, match = "SAME_" + key.upper(), FINGERPRINTS[key][row[key]]
+        if status == "NEW_UNVERIFIED":
+            if name in seen:
+                status = "DUPLICATE_IN_PROPOSED_SET"
+            elif base_key in seen_bases:
+                status = "DUPLICATE_BASE_IN_PROPOSED_SET"
+            elif row["prompt_sha256"] in seen_prompts:
+                status = "DUPLICATE_PROMPT_IN_PROPOSED_SET"
+            elif row["oracle_sha256"] in seen_oracles:
+                status = "DUPLICATE_ORACLE_IN_PROPOSED_SET"
         seen.add(name)
+        seen_bases.add(base_key)
+        seen_prompts.add(row["prompt_sha256"])
+        seen_oracles.add(row["oracle_sha256"])
         output.append({"case_id":row["case_id"],"status":status,"historical_match":match})
     return output
 
@@ -213,14 +248,35 @@ def main():
     else:
         selected_real = None
     mismatch = any(x["status"] == "MISMATCH" for x in links)
+    missing_link = any(x["status"] == "MISSING_LOCAL_EVIDENCE" for x in links)
     duplicate = any(x["status"] != "NEW_UNVERIFIED" for x in proposed)
-    gate = "BLOCKED_HASH_MISMATCH" if mismatch else "BLOCKED_DUPLICATE_TASK" if duplicate else "READY_FOR_REVIEW" if proposed else "INVENTORY_ONLY"
+    recovery_reports = [r for r in reports if r["kind"] == "REAL_RECOVERY02"]
+    recovery_fully_verified = any(
+        sum(x["status"] == "VERIFIED" for x in links if x["from"] == r["path"]) == 2
+        for r in recovery_reports)
+    complete = bool(revised and phi and recovery_fully_verified)
+    if mismatch:
+        gate = "BLOCKED_HASH_MISMATCH"
+    elif missing_link:
+        gate = "BLOCKED_MISSING_LINKED_REPORT"
+    elif duplicate:
+        gate = "BLOCKED_DUPLICATE_TASK"
+    elif not reports:
+        gate = "BLOCKED_NO_REPORTS_FOUND"
+    elif issues:
+        gate = "BLOCKED_UNRECOGNIZED_REPORTS"
+    elif not complete:
+        gate = "BLOCKED_INCOMPLETE_HISTORY"
+    elif proposed:
+        gate = "READY_FOR_REVIEW"
+    else:
+        gate = "INVENTORY_COMPLETE_NO_TASKS"
     public = [{k:v for k,v in r.items() if k != "_doc"} for r in reports]
     outcome = {"schema":1, "phase":"LOCAL-WINNER-01", "inference_calls":0,
                "docker_calls":0, "reports":public,"correlations":links,
                "selected_home":selected,"selected_real":selected_real,
                "historical_case_groups":KNOWN,"candidate_cases":proposed,
-               "unrecognized":issues,"gate":gate,
+               "unrecognized":issues,"history_complete":complete,"gate":gate,
                "note":"Old V1/V2/V3 and SWE-bench performance remains documented historical evidence, not rescored. Cohorts are never pooled."}
     if args.output.exists():
         p.error("output already exists: " + str(args.output))
