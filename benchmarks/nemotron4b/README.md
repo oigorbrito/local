@@ -97,3 +97,36 @@ tentativas realmente executadas; `summary.requested` é a meta inicial.
 Métricas de transporte passam a registrar conclusão de resposta e tempo por
 requisição, para não tratar HTTP 200 como prova de resposta efetivamente
 recebida.
+
+
+## Resultado observado no Windows — auditoria de 26/10/2026
+
+As duas execuções anteriores usaram o mesmo `nemotron-3-nano:4b`,
+digest `d94b6dfae26d340fd16599d8cd5301945bb42b6bd7a7c70f2078559562f60cbe`.
+A perícia sobre `r01-local09` em cada diretório encontrou **o mesmo**
+JSON de resposta (`d5ae735b366616bdfec1fdaffcbfdde86ffdc1247008d06c84f251dfea39bf1f`)
+e o mesmo candidato Python (`fe3e34bb16bcbc66b51c9d7dcb8361ee9200e02f5b54e1f18ed71119b16ce81a`).
+Os bytes da resposta bruta corresponderam ao JSON persistido.
+
+Na versão antiga do validador, `replay` rejeitou esse candidato com
+`GIT_APPLY_CHECK_FAILED: guard.py:1`, mas a materialização direta em
+checkout Git descartável gerou um patch de **954 bytes**, aplicável ao
+índice e aprovado por **6/6 testes independentes**. É um único candidato
+funcional observado duas vezes, não dois sucessos amostrais independentes.
+
+A correção posterior de `integrated_edit.py` preserva os bytes integrais
+do `git diff` na checagem do índice, com testes de regressão incluindo
+CRLF. Esse comportamento está validado pelo CI offline, mas a resolução
+da rejeição do **candidato original específico** exige nova execução
+de `audit.ps1` sobre os diretórios preservados; não reexecutar a inferência
+para realizar essa perícia.
+
+Se o validador continuar rejeitando, a auditoria grava também
+`rejected-validator.patch`, com SHA-256 e resultado de uma nova
+verificação contra o mesmo índice, para investigar o motivo exato
+sem contornar a checagem de segurança.
+
+O Cloi não produziu patch aprovado nas duas execuções. A instrumentação
+do relay foi reforçada para diferenciar requisição HTTP aceita, resposta
+integralmente transferida e estatísticas de geração; HTTP 200 sozinho
+não prova que o cliente terminou de receber a resposta.
