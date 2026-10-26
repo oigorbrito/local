@@ -130,3 +130,33 @@ O Cloi não produziu patch aprovado nas duas execuções. A instrumentação
 do relay foi reforçada para diferenciar requisição HTTP aceita, resposta
 integralmente transferida e estatísticas de geração; HTTP 200 sozinho
 não prova que o cliente terminou de receber a resposta.
+
+
+## Pós-perícia: experimento contrabalançado com Cloi primeiro
+
+O replay histórico realizado em `D:\projetos\local-nemotron-audit-20261026-004733`
+confirmou `replay.status=ACCEPTED` e `direct.functional_passed=true` nos
+dois registros do mesmo candidato, com patch de 954 bytes e os seis testes
+PASS. A falha de aplicação do patch está resolvida nesse caso concreto.
+
+As tentativas anteriores de Cloi sofreram timeout da execução e, nas
+repetições posteriores já contaminadas, falha no preflight de conectividade.
+O CI offline não prova a causa da lentidão. O próximo ensaio começa com
+**Cloi primeiro**, permitindo observar o braço que não teve um patch
+validado antes de executar LOCAL-09. Isso NÃO muda o modelo, o hardware,
+a temperatura, o contexto, os testes nem os limites por tentativa:
+
+    .\benchmarks\nemotron4b\run.ps1 -Repeats 3 -FirstExecutor cloi -OutputDir D:\projetos\local-nemotron-comparison-cloi-first
+
+A ordem continua alternada: `R1 Cloi→LOCAL-09`, `R2 LOCAL-09→Cloi`,
+`R3 Cloi→LOCAL-09`. Falha de transporte/timeout interrompe a matriz
+imediatamente, mantendo o relatório parcial sem calcular rankings
+enganosos. Cada arm possui seu diretório e métricas de geração
+separadas das chamadas de preflight.
+
+Interpretar 2s de saída por preflight como falha de disponibilidade,
+não velocidade de resolução. Em `relay-request-metrics.jsonl`, verificar
+`path`, `elapsed_seconds`, `response_complete`, `error_type`,
+`usage_available` e as respostas brutas por SHA-256 para distinguir
+um HTTP 200 de geração efetivamente concluída. Não escolher vencedor
+a partir de uma única fixture.
