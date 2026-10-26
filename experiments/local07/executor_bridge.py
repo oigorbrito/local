@@ -28,23 +28,34 @@ class Request:
     issue: str
     selected_files: tuple[str, ...]
     context: tuple[dict, ...]
+    output_schema: int = 1
 
     def to_json(self):
+        if self.output_schema not in (1, 2):
+            raise ContractError("INVALID_OUTPUT_SCHEMA")
+        contract = ({"schema": 2, "file": "one of allowed_files",
+                     "old": "exact unique source excerpt",
+                     "new": "replacement excerpt"} if self.output_schema == 2
+                    else {"schema": 1, "file": "one of allowed_files",
+                          "content": "complete replacement Python source"})
         return {"schema": 1, "issue": self.issue,
                 "allowed_files": list(self.selected_files),
                 "context": list(self.context),
-                "output_contract": {"schema": 1, "file": "one of allowed_files",
-                                    "content": "complete replacement Python source"}}
+                "output_contract": contract}
 
 
-def prepare(repo, issue, *, max_chars=9000):
+def prepare(repo, issue, *, max_chars=9000, output_schema=1):
     if not isinstance(issue, str) or not issue.strip() or len(issue) > MAX_ISSUE_CHARS:
         raise ContractError("INVALID_ISSUE")
+    if type(output_schema) is not int or output_schema not in (1, 2):
+        raise ContractError("INVALID_OUTPUT_SCHEMA")
     r = retrieve(repo, issue, max_chars=max_chars)
     selected = tuple(r["selected_files"][:2])
     if not selected:
         raise ContractError("NO_RETRIEVED_FILES")
-    return Request(issue, selected, tuple(x for x in r["results"] if x["path"] in selected))
+    return Request(issue, selected,
+                   tuple(x for x in r["results"] if x["path"] in selected),
+                   output_schema)
 
 
 def parse_response(payload, allowed_files):
@@ -73,9 +84,11 @@ def parse_response(payload, allowed_files):
     return raw["file"], raw["content"]
 
 
-def replay(repo, issue, response_bytes):
-    request = prepare(repo, issue)
+def replay(repo, issue, response_bytes, *, output_schema=1):
+    request = prepare(repo, issue, output_schema=output_schema)
     path, source = parse_response(response_bytes, request.selected_files)
+    if output_schema == 2 and not isinstance(source, dict):
+        raise ContractError("RESPONSE_CONTRACT_VERSION_MISMATCH")
     if isinstance(source, dict):
         root = pathlib.Path(repo).resolve()
         target = root.joinpath(*pathlib.PurePosixPath(path).parts)
