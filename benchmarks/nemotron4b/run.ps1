@@ -23,19 +23,11 @@ New-Item -ItemType Directory -Force -Path $results | Out-Null
 $image = "local-nemotron4b-comparison:cloi-2.1.0"
 docker build --file (Join-Path $dir "Dockerfile") --tag $image $dir
 if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar imagem isolada." }
-$dockerArgs = @(
-  "run","--rm","--network","host","--read-only",
-  "--cap-drop","ALL","--security-opt","no-new-privileges",
-  "--pids-limit","128","--memory","3g","--cpus","2",
-  "--tmpfs","/tmp:rw,exec,nosuid,size=512m",
-  "--mount","type=bind,source=$dir,target=/app/benchmarks/nemotron4b,readonly",
-  "--mount","type=bind,source=$(Join-Path $repo 'experiments\local07'),target=/app/experiments/local07,readonly",
-  "--mount","type=bind,source=$results,target=/results",
-  $image,"--model",$Model,"--repeats",$Repeats,"--timeout",$TimeoutSeconds
-)
-& docker @dockerArgs
+$adapter = Join-Path $repo 'experiments\local07'
+$relay = Join-Path $dir 'relay_host.py'
+& python $relay --docker-image $image --benchmark-dir $dir --adapter-dir $adapter --results-dir $results --model $Model --repeats $Repeats --timeout $TimeoutSeconds
 $exit = $LASTEXITCODE
 Write-Host "Evidencia: $results"
-if ($exit -eq 2) { throw "BLOCKED: host networking, Ollama ou modelo Q4_K_M." }
-if ($exit -ne 0) { Write-Warning "Ao menos uma tentativa nao passou nos testes funcionais." }
+if ($exit -eq 2) { throw "BLOCKED: Docker Engine, localhost Ollama ou modelo Q4_K_M." }
+if ($exit -ne 0) { Write-Warning "Pelo menos uma tentativa falhou; consulte os resultados." }
 exit $exit
