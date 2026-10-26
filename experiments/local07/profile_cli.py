@@ -88,8 +88,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         stage('MODEL_REQUEST_OR_RESPONSE')
         payload = generate(
             request, profile.base_model, timeout=timeout,
-            system=profile.system, options=profile.options,
-            on_response=preserve_response
+            system=profile.system, options=profile.options
         )
         mode = "local_inference"
     else:
