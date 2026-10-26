@@ -154,6 +154,7 @@ def cloi_startup_probe(model, identity):
     The parent relay rejects /api/chat and /api/generate before forwarding.
     Session existence plus the expected diagnostic rejection attest startup.
     """
+    os.write(1, b'{"kind":"phase","name":"cloi-startup-probe"}\n')
     out = OUTPUT / "cloi-startup-probe"
     out.mkdir(exist_ok=False)
     with tempfile.TemporaryDirectory(prefix="nemotron-startup-") as temp:
