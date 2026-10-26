@@ -145,6 +145,7 @@ def main():
     for repetition in range(1, a.repeats+1):
         for arm in (("local09", "cloi") if repetition % 2 else ("cloi", "local09")):
             name = "r%02d-%s" % (repetition, arm)
+            os.write(1, (json.dumps({"kind": "phase", "name": name}) + "\n").encode("utf-8"))
             out = OUTPUT / name
             out.mkdir(exist_ok=False)
             with tempfile.TemporaryDirectory(prefix="nemotron-repair-") as tmp:
@@ -177,7 +178,7 @@ def main():
               "suite": "symlink-escape-v1", "prompt": TASK, "summary": summary,
               "config": {"num_ctx": 4096, "temperature": 0,
                          "local09_num_predict": 2048,
-                         "cloi_num_predict": "Ollama model default - not fixed",
+                         "cloi_num_predict": 2048, "relay_enforces_generation": True,
                          "cloi_max_iterations": 14,
                          "cloi_commit": "1da62db7aa3aed8b1e65f1e3fb69a89cf00707b9"},
               "runs": records}
