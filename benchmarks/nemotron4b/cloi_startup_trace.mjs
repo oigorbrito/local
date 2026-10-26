@@ -1,36 +1,50 @@
 #!/usr/bin/env node
-/** Passive trace for original Cloi CLI startup. No monkey-patching or secrets.
+/** Passive tracing for pinned Cloi CLI via Node's public diagnostics_channel.
 
-    Node's public diagnostics_channel API observes Undici/fetch lifecycle without
-    modifying request/response, source code, timeouts, or tool behavior.
-    Only allowlisted Ollama API route labels and stage names are printed.
+    No monkey-patches, model prompts, URLs outside the local Ollama route set,
+    HTTP headers, message bodies, or secrets are recorded.
 */
 import dc from 'node:diagnostics_channel';
 
 const routes = new Set(['/api/tags', '/api/show', '/api/chat', '/api/generate']);
-const emitted = new Map();
-let count = 0;
+const requestIds = new WeakMap();
+let nextId = 0;
 const stamp = () => Math.round(performance.now());
+const safeErrorCode = (value) =>
+  typeof value === 'string' && /^[A-Z0-9_]{1,60}$/.test(value)
+    ? value : null;
 
-function emit(event, request, detail = '') {
-  const path = request?.path;
-  if (!routes.has(path)) return;
-  console.error('STARTUP_TRACE ' + JSON.stringify({
-    event, route: path, ms: stamp(), index: count++, ...(detail ? { detail } : {}),
-  }));
-  emitted.set(path, (emitted.get(path) || 0) + 1);
+function observe(event, request, response, error) {
+  const route = request?.path;
+  if (!routes.has(route)) return;
+  let id = requestIds.get(request);
+  if (id == null) {
+    id = ++nextId;
+    requestIds.set(request, id);
+  }
+  const frame = {
+    event, route, request_id: id, ms: stamp(),
+  };
+  if (event === 'response_headers')
+    frame.status = Number(response?.statusCode ?? 0);
+  if (event === 'request_error') {
+    frame.error_name = String(error?.name || 'Error').slice(0, 48);
+    frame.error_code = safeErrorCode(error?.code || error?.cause?.code);
+  }
+  console.error('STARTUP_TRACE ' + JSON.stringify(frame));
 }
 
 dc.subscribe('undici:request:create', ({ request }) =>
-  emit('request_created', request));
+  observe('request_created', request));
+dc.subscribe('undici:request:bodySent', ({ request }) =>
+  observe('request_body_sent', request));
 dc.subscribe('undici:request:headers', ({ request, response }) =>
-  emit('response_headers', request, String(response?.statusCode ?? 'unknown')));
+  observe('response_headers', request, response));
 dc.subscribe('undici:request:trailers', ({ request }) =>
-  emit('response_trailers', request));
+  observe('response_trailers', request));
 dc.subscribe('undici:request:error', ({ request, error }) =>
-  emit('request_error', request, error?.name ?? 'Error'));
+  observe('request_error', request, null, error));
 
 console.error('STARTUP_TRACE ' + JSON.stringify({
-  event: 'cli_module_bootstrap', ms: stamp(), index: count++,
+  event: 'cli_module_bootstrap', ms: stamp(),
 }));
-// No timer: event-loop side effects could change the behavior being measured.
