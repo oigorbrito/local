@@ -31,6 +31,39 @@ funcional independente em isolamento qualificado. Sem isso,
 
 ## Execução Windows
 
+**Fluxo recomendado — um comando após obter o script da PR #30:**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\\experiments\\local07\\run_local20_windows.ps1"
+```
+
+O script pode ser chamado de qualquer diretório, usando o caminho absoluto
+onde foi salvo. Ele **não altera** `D:\\projetos\\local`: clona uma cópia
+independente e fixa o runner no commit
+`8fe0b095c40bde811f1127d62aafdea92db63896` (CI Ubuntu e Windows PASS).
+Cria um worktree separado no commit-base
+`11fd231cf2ebd27151b1390621c61dd2cf7a1af5`, confirma o blob
+`ce1d7b4a37d73e1f595645d759542ba478991898` e extrai a tarefa
+diretamente de um blob Git, sem transcodificação por PowerShell. O SHA-256
+original continua obrigatório.
+
+Depois de preparar esses dados, cria um registro exclusivo em
+`%LOCALAPPDATA%\\LOCAL-20\\case-claims` antes de qualquer geração,
+executa **uma única vez** a pipeline e verifica relatório, cinco eventos,
+resposta bruta, patch e seus hashes. Não há retry implícito: uma segunda
+execução do mesmo caso é recusada mesmo que a primeira tenha falhado.
+Um único diretório exclusivo sob `%LOCALAPPDATA%\\LOCAL-20` conserva a
+sessão, os dois checkouts descartáveis e as evidências para inspeção.
+O script preserva esses artefatos tanto em sucesso quanto em falha.
+
+O status de sucesso continua sendo
+`PATCH_READY_NOT_FUNCTIONALLY_GRADED`; não aplica nem executa o patch.
+A avaliação funcional exige isolamento independente posterior. **O GitHub
+Actions apenas valida contratos offline:** não executa a inferência do
+computador Windows do operador.
+
+**Fluxo manual avançado** (para casos futuros com outros pins):
+
 Pré-requisitos: Python 3.12, Git, Ollama escutando em 127.0.0.1:11434,
 modelo nativo `nemotron-3-nano:4b`, uma cópia Git limpa e descartável
 de um **caso novo** e arquivo de tarefa congelado fora do checkout.
