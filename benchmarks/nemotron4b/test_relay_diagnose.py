@@ -1,6 +1,7 @@
 """Offline regression checks for retained/unfinished model requests."""
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -105,6 +106,38 @@ class DiagnosisTests(unittest.TestCase):
             self.assertTrue(request["raw"]["ollama_done_frame"])
             self.assertTrue(request["raw"]["sha256_ok"])
             self.assertNotIn("PRIVATE_CONTENT", json.dumps(diag))
+
+    def test_cloi_sqlite_counts_steps_without_exposing_session_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.make_results(root)
+            data = root / "r01-cloi" / "cloi-data"
+            data.mkdir(parents=True)
+            conn = sqlite3.connect(str(data / "cloi.db"))
+            conn.executescript("""
+                CREATE TABLE sessions (id TEXT);
+                CREATE TABLE messages (
+                    role TEXT, tool_name TEXT, content TEXT
+                );
+                CREATE TABLE results (name TEXT);
+                INSERT INTO sessions VALUES ('session');
+                INSERT INTO messages VALUES ('user', NULL, 'SECRET_USER_PROMPT');
+                INSERT INTO messages VALUES ('assistant', NULL, 'PRIVATE_MODEL_ANSWER');
+                INSERT INTO messages VALUES ('tool', 'read_file', 'SECRET_TOOL_OUTPUT');
+                INSERT INTO results VALUES ('handle');
+            """)
+            conn.close()
+            diag = diagnose.analyze(root)
+            session = diag["cloi_sessions"]["r01-cloi"]
+            self.assertTrue(session["readable"])
+            self.assertEqual(session["roles"],
+                             {"assistant": 1, "tool": 1, "user": 1})
+            self.assertEqual(session["tool_results_by_name"], {"read_file": 1})
+            self.assertEqual(session["stored_results"], 1)
+            serialized = json.dumps(diag)
+            for secret in ("SECRET_USER_PROMPT", "PRIVATE_MODEL_ANSWER",
+                           "SECRET_TOOL_OUTPUT"):
+                self.assertNotIn(secret, serialized)
 
     def test_unsafe_raw_path_not_read(self):
         with tempfile.TemporaryDirectory() as tmp:
