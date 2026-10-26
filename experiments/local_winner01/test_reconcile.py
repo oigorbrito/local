@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from reconcile import find_reports, safe_json, report_type, rows, integrity, proposed_tasks, hash_bytes
+from unittest.mock import patch
+from reconcile import find_reports, safe_json, report_type, rows, integrity, proposed_tasks, hash_bytes, main
 
 def write(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -70,14 +71,67 @@ class InventoryTests(unittest.TestCase):
     def test_known_case_by_name_and_fingerprint(self):
         base={"source_repo":"oigorbrito/local","base_commit":"a"*40,"oracle_sha256":"b"*64,"prompt_sha256":"c"*64}
         data=[{**base,"case_id":"calendar_merge"},
-              {**base,"case_id":"renamed_case",
+              {**base,"case_id":"renamed_case","base_commit":"2"*40,
                "oracle_sha256":"8b3a5e12dd5f8645168b91dabb043583b896fed9365f519410d1d38ee489b873"},
-              {**base,"case_id":"fresh_case"},
-              {**base,"case_id":"fresh_case"}]
+              {**base,"case_id":"fresh_case","base_commit":"3"*40, "prompt_sha256":"d"*64,
+               "oracle_sha256":"e"*64},
+              {**base,"case_id":"fresh_case","base_commit":"4"*40, "prompt_sha256":"f"*64,
+               "oracle_sha256":"1"*64}]
         output=proposed_tasks(data)
         self.assertEqual([x["status"] for x in output],
           ["EXISTING_HISTORICAL_TASK","SAME_ORACLE_SHA256",
            "NEW_UNVERIFIED","DUPLICATE_IN_PROPOSED_SET"])
+
+    def test_reject_existing_swebench_base_even_with_renamed_issue(self):
+        case = {"case_id":"unrelated-new-title","source_repo":"marshmallow-code/marshmallow",
+                "base_commit":"2be2d83a1a9a6d3d9b85804f3ab545cecc409bb0",
+                "prompt_sha256":"f"*64, "oracle_sha256":"e"*64}
+        output = proposed_tasks([case])
+        self.assertEqual(output[0]["status"],"EXISTING_HISTORICAL_BASE")
+
+    def test_same_repo_and_base_with_renamed_issue_is_repeated(self):
+        one = {"case_id":"one","source_repo":"owner/repo","base_commit":"a"*40,
+               "prompt_sha256":"b"*64, "oracle_sha256":"c"*64}
+        two = {**one, "case_id":"two","prompt_sha256":"d"*64,
+               "oracle_sha256":"e"*64}
+        self.assertEqual([x["status"] for x in proposed_tasks([one,two])],
+                         ["NEW_UNVERIFIED","DUPLICATE_BASE_IN_PROPOSED_SET"])
+
+    def test_empty_inventory_blocks(self):
+        dest = self.root / "empty.json"
+        with patch("sys.argv", ["reconcile.py","--root",str(self.root),"--output",str(dest)]):
+            rc = main()
+        result=json.loads(dest.read_text(encoding="utf-8"))
+        self.assertEqual(rc,2)
+        self.assertEqual(result["gate"],"BLOCKED_NO_REPORTS_FOUND")
+
+    def test_missing_historical_link_blocks(self):
+        paths=self.fixture()
+        paths[0].unlink()
+        dest=self.root/"blocked.json"
+        with patch("sys.argv", ["reconcile.py","--root",str(self.root),"--output",str(dest)]):
+            rc=main()
+        result=json.loads(dest.read_text(encoding="utf-8"))
+        self.assertEqual(rc,2)
+        self.assertEqual(result["gate"],"BLOCKED_MISSING_LINKED_REPORT")
+
+    def test_full_fixture_inventory_passes(self):
+        self.fixture()
+        dest=self.root/"inventory.json"
+        with patch("sys.argv", ["reconcile.py","--root",str(self.root),"--output",str(dest)]):
+            rc=main()
+        result=json.loads(dest.read_text(encoding="utf-8"))
+        self.assertEqual(rc,0)
+        self.assertTrue(result["history_complete"])
+        self.assertEqual(result["gate"],"INVENTORY_COMPLETE_NO_TASKS")
+        self.assertEqual(result["inference_calls"],0)
+        self.assertEqual(len(result["reports"]),5)
+
+    def test_invalid_hash_blocks_case(self):
+        case = {"case_id":"new","source_repo":"owner/repo","base_commit":"a"*40,
+                "prompt_sha256":"f"*64, "oracle_sha256":"not-a-hash"}
+        with self.assertRaisesRegex(ValueError, "INVALID_CASE_IDENTITY_FORMAT"):
+            proposed_tasks([case])
 
     def test_reject_unknown_report_format(self):
         p=write(self.root/"local-model-pilot-unknown/report.json",{"secret":"DO_NOT_EXPORT"})
