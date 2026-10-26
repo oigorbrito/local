@@ -262,3 +262,37 @@ esse preflight específico e a investigação deve seguir para o
 ciclo de início de sessão, sem atribuir um bug ao transporte.
 Esse teste ainda não executa o agente nem garante qualidade de
 correção. Não iniciá-lo com uma pasta que já contém um relatório.
+
+
+## LOCAL-27: teste controlado do executável Cloi, sem gerar tokens
+
+O ensaio real no Windows `-ProbeOnly` concluiu em **0,709 s**:
+`PROBE_TAGS_HTTP_OK`, `PROBE_TAGS_JSON_PARSED`,
+`PROBE_SHOW_JSON_PARSED` e `PROBE_PREFLIGHT_PASS`.
+Esse resultado refuta que a ponte do provedor esteja
+sistematicamente impedida de completar a leitura dos metadados.
+Entretanto, a sonda não criou sessão nem iniciou o executável principal.
+
+Foi acrescentado `-StartupProbe`, que executa o **Cloi CLI fixado
+em 1da62db7**, com o mesmo arquivo de configuração, `CLOI_DATA_DIR`,
+contêiner sem rede e fixture independente, mas concede somente
+**20 s** para a inicialização do processo. O relay intercepta e
+**recusa qualquer POST /api/chat ou /api/generate antes do upstream**,
+retornando `DIAGNOSTIC_GENERATION_BLOCKED`; nenhuma geração
+é encaminhada ao Ollama. O probe termina positivamente quando
+a sessão SQLite foi criada e o próprio Cloi observou essa
+recusa deliberada, demonstrando que alcançou a primeira
+solicitação ao modelo:
+
+    .\benchmarks\nemotron4b\run.ps1 -StartupProbe -OutputDir "D:\projetos\local-nemotron-cloi-startup"
+
+Em `report.json`, `STARTUP_REACHED_GENERATION_GATE`
+significa que o CLI passou pelo preflight, iniciou sessão e
+alcançou `/api/chat` (bloqueado intencionalmente); **não é**
+êxito em correção de código. `STARTUP_BLOCKED` conserva
+timeout de 20 s, ausência ou erro SQLite, stdout/stderr,
+estágios e eventos do relay para a investigação seguinte.
+Não confundir a recusa esperada `DIAGNOSTIC_GENERATION_BLOCKED`
+com falha real do Ollama. O teste não modifica o modelo,
+a qualidade avaliada, os seis testes independentes nem a
+configuração das comparações.
