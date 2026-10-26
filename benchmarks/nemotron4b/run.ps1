@@ -1,7 +1,7 @@
 param(
   [string]$Model = "nemotron-3-nano:4b",
   [ValidateRange(1,5)][int]$Repeats = 3,
-  [ValidateRange(60,600)][int]$TimeoutSeconds = 420,
+  [ValidateRange(60,420)][int]$TimeoutSeconds = 420,
   [string]$OutputDir = ""
 )
 $ErrorActionPreference = "Stop"
@@ -29,7 +29,7 @@ $dockerArgs = @(
   "--pids-limit","128","--memory","3g","--cpus","2",
   "--tmpfs","/tmp:rw,exec,nosuid,size=512m",
   "--mount","type=bind,source=$dir,target=/app/benchmarks/nemotron4b,readonly",
-  "--mount","type=bind,source=$(Join-Path $repo 'experiments\\local07'),target=/app/experiments/local07,readonly",
+  "--mount","type=bind,source=$(Join-Path $repo 'experiments\local07'),target=/app/experiments/local07,readonly",
   "--mount","type=bind,source=$results,target=/results",
   $image,"--model",$Model,"--repeats",$Repeats,"--timeout",$TimeoutSeconds
 )
