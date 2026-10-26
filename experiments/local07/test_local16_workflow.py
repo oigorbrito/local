@@ -420,8 +420,9 @@ class WorkflowSessionTests(unittest.TestCase):
             with self.assertRaises(ContractError):
                 generate(self.session, offline_response_json=self.response)
             model.assert_not_called()
-        for path in (REPORT, PATCH, RESPONSE):
+        for path in (REPORT, PATCH):
             self.assertFalse((self.session / path).exists())
+        self.assertEqual((self.session / RESPONSE).read_bytes(), b'{"schema": 3}')
 
     def test_cli_subcommands_with_real_git_and_no_model(self):
         def call(*args):
