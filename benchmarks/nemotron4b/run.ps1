@@ -3,6 +3,7 @@ param(
   [ValidateRange(1,5)][int]$Repeats = 3,
   [ValidateSet('local09','cloi')][string]$FirstExecutor = 'local09',
   [ValidateRange(60,420)][int]$TimeoutSeconds = 420,
+  [switch]$ProbeOnly,
   [string]$OutputDir = ""
 )
 $ErrorActionPreference = "Stop"
@@ -50,9 +51,19 @@ docker build --file (Join-Path $dir "Dockerfile") --tag $image $dir
 if ($LASTEXITCODE -ne 0) { throw "Falha ao preparar imagem isolada." }
 $adapter = Join-Path $repo 'experiments\local07'
 $relay = Join-Path $dir 'relay_host.py'
-& python $relay --docker-image $image --benchmark-dir $dir --adapter-dir $adapter --results-dir $results --model $Model --repeats $Repeats --timeout $TimeoutSeconds --first-executor $FirstExecutor
+$relayArgs = @(
+  '--docker-image', $image, '--benchmark-dir', $dir,
+  '--adapter-dir', $adapter, '--results-dir', $results,
+  '--model', $Model, '--repeats', "$Repeats",
+  '--timeout', "$TimeoutSeconds", '--first-executor', $FirstExecutor
+)
+if ($ProbeOnly) { $relayArgs += '--probe-only' }
+& python $relay @relayArgs
 $exit = $LASTEXITCODE
 Write-Host "Evidencia: $results"
-if ($exit -eq 2) { throw "BLOCKED: consulte os artefatos para diagnosticar timeout, transporte, Docker ou modelo." }
+if ($exit -eq 2) {
+  if ($ProbeOnly) { throw "CLOI_PREFLIGHT_BLOCKED: consulte report.json e relay-request-events.jsonl; inferencia nao iniciada." }
+  throw "BLOCKED: consulte os artefatos para diagnosticar timeout, transporte, Docker ou modelo."
+}
 if ($exit -ne 0) { Write-Warning "Pelo menos uma tentativa falhou; consulte os resultados." }
 exit $exit
