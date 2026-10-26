@@ -1,0 +1,91 @@
+name: Nemotron 4B bridge offline verification
+
+on:
+  pull_request:
+    paths:
+      - 'benchmarks/nemotron4b/**'
+      - '.github/workflows/nemotron4b-offline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 pinned
+        with:
+          persist-credentials: false
+      - name: Compile and test broker (no Docker, network or inference)
+        run: |
+          python3 -B -m py_compile benchmarks/nemotron4b/*.py
+          python3 -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_*.py' -v
+          node --check benchmarks/nemotron4b/cloi_probe.mjs
+          node --check benchmarks/nemotron4b/cloi_sqlite_probe.mjs
+          node --check benchmarks/nemotron4b/cloi_startup_trace.mjs
+      - name: Verify vulnerable baseline has the expected failing oracle
+        run: |
+          python3 -B - <<'PY'
+          import pathlib, shutil, subprocess, tempfile
+          src = pathlib.Path("benchmarks/nemotron4b/fixture")
+          with tempfile.TemporaryDirectory() as temp:
+              dst = pathlib.Path(temp) / "repo"
+              shutil.copytree(src, dst)
+              p = subprocess.run(
+                  ["python3", "-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
+                  cwd=dst, capture_output=True, text=True, timeout=30,
+              )
+              assert p.returncode != 0, "the vulnerable baseline unexpectedly passed"
+              assert "Ran 6 tests" in p.stderr
+              assert "FAILED (failures=4)" in p.stderr, p.stderr
+          PY
+
+  windows-patch-bytes:
+    runs-on: windows-2022
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2 pinned
+        with:
+          persist-credentials: false
+      - name: Regress raw Git diff handling on Windows (no Ollama, Docker or GPU)
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_patch_bytes.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Windows Git diff regression failed" }
+      - name: Exercise guest HTTP/1.1 with Node 22 Undici on Windows
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_guest_http.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Windows sequential preflight HTTP regression failed" }
+      - name: Exercise full guest stdin/stdout protocol with real Node fetch
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_guest_stdio.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Guest stdio transport integration failed" }
+      - name: Verify child processes cannot consume the guest broker input
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_child_stdin.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Guest stdin ownership regression failed" }
+      - name: Parse and validate Windows benchmark entrypoints
+        shell: pwsh
+        run: |
+          foreach ($script in @('run.ps1', 'audit.ps1')) {
+            $path = (Resolve-Path "benchmarks/nemotron4b/$script").Path
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $path, [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if (@($errors).Count -ne 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell parsing failed for $script"
+            }
+          }
+          $cmd = Get-Command (Resolve-Path "benchmarks/nemotron4b/run.ps1").Path
+          if (-not $cmd.Parameters.ContainsKey('SqliteProbe')) {
+            throw "SqliteProbe parameter is not exposed"
+          }
+
