@@ -38,7 +38,18 @@ def docker_image(image):
     if test.returncode:
         fetch=call(["docker","pull",image],IMAGE_WAIT_SECONDS)
         if fetch.returncode:
-            raise RuntimeError("DOCKER_IMAGE_PULL_FAILED")
+            diagnostic=(fetch.stderr+" "+fetch.stdout).lower()
+            if any(x in diagnostic for x in ("pull access denied","requested access to the resource is denied","repository does not exist","manifest unknown","not found")):
+                reason="IMAGE_NOT_PUBLISHED_OR_NOT_ACCESSIBLE"
+            elif "no matching manifest" in diagnostic:
+                reason="IMAGE_PLATFORM_NOT_AVAILABLE"
+            elif any(x in diagnostic for x in ("timeout","temporary failure","network is unreachable","connection refused")):
+                reason="NETWORK_OR_REGISTRY_UNREACHABLE"
+            elif "no space left" in diagnostic:
+                reason="RUNNER_DISK_EXHAUSTED"
+            else:
+                reason="UNCLASSIFIED_IMAGE_PULL_FAILURE"
+            raise RuntimeError("DOCKER_IMAGE_PULL_FAILED:"+reason+":IMAGE="+image[:110])
         test=call(["docker","image","inspect",image,"--format","{{.Id}}"])
     if test.returncode or not test.stdout.strip().startswith("sha256:"):
         raise RuntimeError("DOCKER_IMAGE_DIGEST_UNAVAILABLE")
