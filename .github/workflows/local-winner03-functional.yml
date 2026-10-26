@@ -1,0 +1,37 @@
+name: LOCAL-WINNER-03 functional oracle pilot (no models)
+on:
+  push:
+    branches:
+      - experiment/local-winner03-functional-oracle
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  functional-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify runner and install pinned official SWE-bench evaluator
+        run: |
+          docker info --format '{{.ServerVersion}}'
+          python -m pip install --no-cache-dir "git+https://github.com/SWE-bench/SWE-bench.git@02e7a74ffd0b707aab73d203fe87bdc7c76afc8e"
+          python -B -m py_compile experiments/local_winner01/qualify_functional.py
+      - name: Baseline against gold on one frozen issue in restricted Docker
+        run: |
+          python -B experiments/local_winner01/qualify_functional.py \
+            --case-id pvlib__pvlib-python-1854 \
+            --output "$RUNNER_TEMP/local-winner03-functional-control.json"
+      - name: Publish sanitized pilot verdict, never patches or test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-winner03-functional-oracle
+          path: ${{ runner.temp }}/local-winner03-functional-control.json
+          if-no-files-found: warn
+          retention-days: 30
