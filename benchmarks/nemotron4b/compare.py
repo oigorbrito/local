@@ -136,8 +136,8 @@ def main():
     p.add_argument("--repeats", type=int, default=3)
     p.add_argument("--timeout", type=int, default=420)
     a = p.parse_args()
-    if not 1 <= a.repeats <= 5 or not 60 <= a.timeout <= 600:
-        p.error("repeats 1..5, timeout 60..600")
+    if not 1 <= a.repeats <= 5 or not 60 <= a.timeout <= 420:
+        p.error("repeats 1..5, timeout 60..420")
     if not OUTPUT.is_dir() or not SOURCE.is_dir():
         raise RuntimeError("MISSING_READONLY_REPO_OR_OUTPUT_VOLUME")
     identity = model_identity(a.model)
