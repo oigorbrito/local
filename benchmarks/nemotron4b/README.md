@@ -365,3 +365,40 @@ Consultar em report.json: startup.cli_help, startup.request_trace e
 startup.session_database_present; confrontar com relay-request-events.jsonl.
 Esse ensaio distingue importação travada de fetch pendente e início de
 sessão; não demonstra qualidade do modelo nem causa-raiz antes da execução.
+
+## LOCAL-27: tags SocketError após HTTP 200 no CLI real
+
+No Windows, a versão anterior de -StartupProbe produziu CLI --help PASS
+(0,206 s), mas o CLI não criou cloi.db durante 20,009 s.
+O trace Undici registrou /api/tags com cabeçalhos HTTP 200; seis
+milissegundos após a segunda criação de requisição /api/tags surgiu
+SocketError. O trace antigo não tinha ID por requisição: esse erro
+NÃO podia ser atribuído à primeira ou à segunda conexão.
+
+O doador fixado src/provider/ollama.js tem isReachable() que retorna
+res.ok SEM consumir o corpo da resposta do primeiro GET /api/tags;
+listModels() então faz novo GET e consome JSON. A ponte era HTTP/1.1
+com Transfer-Encoding: chunked e keep-alive implícito. Hipótese:
+reutilização/fechamento de conexão com resposta anterior não consumida.
+
+Correção experimental no relay_guest.py: Connection: close explícito
+nas respostas da ponte, encerrando o socket ao concluir cada corpo
+(respostas válidas HTTP/1.1 com Content-Length ou chunked). Isso não
+modifica o doador, não muda modelo, limites ou dados da tarefa.
+
+Teste ponta a ponta sem Ollama: o próprio Bridge atende um broker
+falso local e um processo Node usa fetch 4 vezes na sequência
+primeiro GET sem consumir corpo -> segundo GET com JSON -> POST
+/api/show com JSON de 22 KiB. Confere Connection: close e corpos;
+rodado também no Windows CI. Os probes reais continuam proibindo
+qualquer geração; o CI não atesta que o SocketError do Windows foi
+eliminado em produção.
+
+O trace passivo agora associa request_id a cada requisição Undici e
+registra request_body_sent, response_headers, response_trailers e
+request_error (nome/código seguro), permitindo apontar o erro à
+conexão correta sem registrar headers, prompts, URLs externos ou
+conteúdo da resposta. Repetir SOMENTE -StartupProbe no Windows
+em diretório novo e exigir STARTUP_REACHED_GENERATION_GATE ou
+examinar eventuais SocketError por request_id. Nenhum trial de
+420 s deve começar antes desse gate.
