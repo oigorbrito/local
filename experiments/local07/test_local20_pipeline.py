@@ -146,10 +146,12 @@ class OneCommandGates(unittest.TestCase):
         self.assertFalse(self.session.exists())
 
     def test_target_retrieval_miss_does_not_invoke_model(self):
-        self.task.write_text("Change other.py to return 8.", encoding="utf-8")
-        new_digest = hashlib.sha256(self.task.read_bytes()).hexdigest()
-        with patch("profile_cli.generate") as model:
-            result = self.execute(expected_task_sha256=new_digest)
+        def irrelevant_retrieval(_repo, evidence, _profile, _task):
+            pathlib.Path(evidence).mkdir()
+            return {"base_commit": self.head, "selected_files": ["other.py"]}
+        with patch("local20_pipeline.create", side_effect=irrelevant_retrieval), \
+             patch("profile_cli.generate") as model:
+            result = self.execute()
             model.assert_not_called()
         self.assertEqual(result["reason"], "PINNED_TARGET_RETRIEVAL_MISS")
         self.assertEqual(result["failed_gate"], "PINNED_TASK_AND_PREPARATION")
