@@ -97,6 +97,11 @@ class RelayTransportTests(unittest.TestCase):
                                   if f["kind"] == "chunk"), payload)
         self.assertEqual(metrics["prompt_tokens"], 83)
         self.assertEqual(metrics["output_tokens"], 29)
+        raw = metrics["raw_response"]
+        self.assertIsNotNone(raw)
+        evidence = Path(self.temp.name) / raw["relative_path"]
+        self.assertEqual(evidence.read_bytes(), payload)
+        self.assertEqual(raw["bytes"], len(payload))
         options = fake.requests[0][2]["options"]
         self.assertEqual((options["num_ctx"], options["num_predict"], options["temperature"]),
                          (4096, 2048, 0))
@@ -115,6 +120,9 @@ class RelayTransportTests(unittest.TestCase):
         self.assertEqual(b"".join(base64.b64decode(f["body"]) for f in frames
                                   if f["kind"] == "chunk"), b"".join(chunks))
         self.assertEqual((metrics["prompt_tokens"], metrics["output_tokens"]), (31, 7))
+        raw = metrics["raw_response"]
+        self.assertEqual((Path(self.temp.name) / raw["relative_path"]).read_bytes(),
+                         b"".join(chunks))
         self.assertEqual(fake.requests[0][1], "/api/chat")
 
     def test_disallowed_route_never_contacts_ollama(self):
@@ -126,6 +134,7 @@ class RelayTransportTests(unittest.TestCase):
             network.assert_not_called()
         self.assertEqual([item["kind"] for item in self.proc.stdin.frames], ["error"])
         self.assertEqual(self.proc.stdin.frames[0]["status"], 502)
+        self.assertIsNone(json.loads(self.metrics.read_text())["raw_response"])
 
     def test_model_mismatch_does_not_forward(self):
         frame = {"kind": "request", "id": self.ident, "method": "POST",
