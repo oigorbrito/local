@@ -46,7 +46,7 @@ def docker_eval(spec, image_id, gold_patch, mode, scratch):
         raise ValueError("INVALID_MODE")
     uid="65534:65534"
     shell=("set -e; cd "+CONTAINER_WORKDIR+"; "
-           +("git apply --check /tmp/model.patch; git apply /tmp/model.patch; " if mode=="gold" else "")
+           +("git apply --check /model.patch; git apply /model.patch; " if mode=="gold" else "")
            +"exec /bin/bash /eval.sh")
     args=["docker","create","--network","none","--cap-drop","ALL",
           "--security-opt","no-new-privileges","--pids-limit","128",
@@ -67,7 +67,7 @@ def docker_eval(spec, image_id, gold_patch, mode, scratch):
     try:
         steps=[["docker","cp",str(evalsh),name+":/eval.sh"]]
         if mode=="gold":
-            steps.append(["docker","cp",str(patch),name+":/tmp/model.patch"])
+            steps.append(["docker","cp",str(patch),name+":/model.patch"])
         for cmd in steps:
             cp=call(cmd,60)
             if cp.returncode:
