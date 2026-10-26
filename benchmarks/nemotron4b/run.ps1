@@ -5,10 +5,13 @@ param(
   [ValidateRange(60,420)][int]$TimeoutSeconds = 420,
   [switch]$ProbeOnly,
   [switch]$StartupProbe,
+  [switch]$SqliteProbe,
   [string]$OutputDir = ""
 )
 $ErrorActionPreference = "Stop"
-if ($ProbeOnly -and $StartupProbe) { throw "Escolha uma unica modalidade de sonda." }
+if ((@($ProbeOnly, $StartupProbe, $SqliteProbe) | Where-Object { $_ }).Count -gt 1) {
+  throw "Escolha uma unica modalidade de sonda."
+}
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = (Resolve-Path (Join-Path $dir "..\..")).Path
 if (-not $OutputDir) {
@@ -61,12 +64,13 @@ $relayArgs = @(
 )
 if ($ProbeOnly) { $relayArgs += '--probe-only' }
 if ($StartupProbe) { $relayArgs += '--startup-probe' }
+if ($SqliteProbe) { $relayArgs += '--sqlite-probe' }
 & python $relay @relayArgs
 $exit = $LASTEXITCODE
 Write-Host "Evidencia: $results"
 if ($exit -eq 2) {
-  if ($ProbeOnly -or $StartupProbe) {
-    throw "CLOI_DIAGNOSTIC_BLOCKED: consulte report.json e relay-request-events.jsonl; nenhuma inferencia foi encaminhada."
+  if ($ProbeOnly -or $StartupProbe -or $SqliteProbe) {
+    throw "CLOI_DIAGNOSTIC_BLOCKED: consulte report.json e logs diagnosticos; nenhuma geracao de tokens foi solicitada."
   }
   throw "BLOCKED: consulte os artefatos para diagnosticar timeout, transporte, Docker ou modelo."
 }
