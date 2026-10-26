@@ -20,7 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Syntax and offline regressions
         run: |
-          python -B -m py_compile experiments/local_winner01/reconcile.py
+          python -B -m py_compile experiments/local_winner01/reconcile.py experiments/local_winner01/select_cases.py
           python -B -m unittest discover -s experiments/local_winner01 -p "test_*.py" -v
       - name: Empty-history smoke must reject an apparently successful inventory
         run: |
@@ -32,3 +32,15 @@ jobs:
           set -e
           test "$rc" -eq 2
           python -c "import json,sys; d=json.load(open(sys.argv[1])); assert d['gate']=='BLOCKED_NO_REPORTS_FOUND'; assert d['inference_calls']==0" "$RUNNER_TEMP/local-winner01-smoke.json"
+
+      - name: Freeze previously unused SWE-bench Lite/dev issue IDs (no model calls)
+        run: |
+          python -B experiments/local_winner01/select_cases.py \
+            --fetch-official \
+            --output-dir "$RUNNER_TEMP/local-winner01-cases"
+      - name: Upload immutable candidate case manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-winner01-candidate-cases
+          path: ${{ runner.temp }}/local-winner01-cases/
+          retention-days: 30
