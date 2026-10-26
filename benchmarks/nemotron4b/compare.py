@@ -135,6 +135,14 @@ def grade(repo, out, attempt):
             "external_tests_passed": verification["code"] == 0}
 
 
+def order_for_repeat(repetition, first_executor):
+    """Alternate order without changing model, task, or per-arm budgets."""
+    if first_executor not in ("local09", "cloi"):
+        raise ValueError("INVALID_FIRST_EXECUTOR")
+    other = "cloi" if first_executor == "local09" else "local09"
+    return (first_executor, other) if repetition % 2 else (other, first_executor)
+
+
 def infrastructure_failure(attempt):
     """Stop a paired experiment when Ollama/transport state may contaminate later arms."""
     if attempt["timeout"]:
@@ -153,6 +161,8 @@ def main():
     p.add_argument("--model", default="nemotron-3-nano:4b")
     p.add_argument("--repeats", type=int, default=3)
     p.add_argument("--timeout", type=int, default=420)
+    p.add_argument("--first-executor", choices=("local09", "cloi"),
+                   default="local09")
     a = p.parse_args()
     if not 1 <= a.repeats <= 5 or not 60 <= a.timeout <= 420:
         p.error("repeats 1..5, timeout 60..420")
@@ -162,7 +172,7 @@ def main():
     records = []
     blocked = None
     for repetition in range(1, a.repeats+1):
-        for arm in (("local09", "cloi") if repetition % 2 else ("cloi", "local09")):
+        for arm in order_for_repeat(repetition, a.first_executor):
             name = "r%02d-%s" % (repetition, arm)
             os.write(1, (json.dumps({"kind": "phase", "name": name}) + "\n").encode("utf-8"))
             out = OUTPUT / name
@@ -204,6 +214,7 @@ def main():
     report = {"schema": 2, "status": (
               "BLOCKED_TRANSPORT_OR_TIMEOUT" if blocked else "MEASURED_NOT_RANKED"),
               "blocking": blocked, "model": identity,
+              "first_executor": a.first_executor,
               "suite": "symlink-escape-v1", "prompt": TASK, "summary": summary,
               "config": {"num_ctx": 4096, "temperature": 0,
                          "local09_num_predict": 2048,
