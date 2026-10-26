@@ -163,6 +163,8 @@ def main():
         parser.add_argument("--" + key, required=True)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--timeout", type=int, default=420)
+    parser.add_argument("--first-executor", choices=("local09", "cloi"),
+                        default="local09")
     args = parser.parse_args()
     if not 1 <= args.repeats <= 5 or not 60 <= args.timeout <= 420:
         parser.error("repeats 1..5; timeout 60..420")
@@ -185,6 +187,7 @@ def main():
         "--mount", "type=bind,source=" + str(results) + ",target=/results",
         args.docker_image, "--model", args.model, "--repeats", str(args.repeats),
         "--timeout", str(args.timeout),
+        "--first-executor", args.first_executor,
     ]
     workers = []
     phase = "preflight"
