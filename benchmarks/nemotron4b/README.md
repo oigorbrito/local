@@ -35,8 +35,8 @@ A comparação permite avaliar correção e tempo, mas NÃO declarar vencedor
 por eficiência de tokens sem normalizar esse parâmetro e repetir tarefas.
 
 SEGURANÇA: Docker contém o executor Cloi com --yes, mas o host networking
-não isola acesso a serviços de rede do Windows. O único bind da fonte
-é read-only, não se monta HOME nem socket Docker. Execute apenas em
+não isola acesso a serviços de rede do Windows. Apenas a fixture e os módulos do LOCAL-07 são montados em read-only,
+não o checkout inteiro; não se monta HOME nem socket Docker. Execute apenas em
 ambiente sem serviços locais sensíveis acessíveis pelo contêiner.
 Não trate isso como sandbox de rede hermética.
 
