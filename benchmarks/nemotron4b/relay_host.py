@@ -53,6 +53,30 @@ def validate(method, path, body, model):
     return json.dumps(payload, separators=(",", ":")).encode("utf-8"), bool(payload.get("stream"))
 
 
+def record_request_start(metrics_path, item, phase):
+    """Persist request intent before launching a worker that may outlive Docker.
+
+    Excludes request bodies and prompts. A missing matching terminal metrics
+    record now reliably identifies a request unfinished at process exit.
+    """
+    ident = item.get("id")
+    if not isinstance(ident, str) or len(ident) != 32:
+        return False
+    record = {
+        "request_id": ident,
+        "phase": phase,
+        "method": str(item.get("method", ""))[:16],
+        "path": str(item.get("path", ""))[:120],
+        "started_unix_seconds": round(time.time(), 3),
+    }
+    with _stdout_lock:
+        with (metrics_path.parent / "relay-request-starts.jsonl").open(
+            "a", encoding="utf-8"
+        ) as stream:
+            stream.write(json.dumps(record, separators=(",", ":")) + "\n")
+    return True
+
+
 def forward(proc, item, model, timeout, metrics_path, phase):
     ident = item.get("id")
     if not isinstance(ident, str) or len(ident) != 32:
@@ -205,6 +229,9 @@ def main():
                     continue
                 if item.get("kind") != "request":
                     print("UNEXPECTED_GUEST_BROKER_FRAME", file=sys.stderr)
+                    continue
+                if not record_request_start(metrics_path, item, phase):
+                    print("INVALID_RELAY_REQUEST_ID", file=sys.stderr)
                     continue
                 worker = threading.Thread(
                     target=forward, args=(child, item, args.model, args.timeout, metrics_path, phase),
