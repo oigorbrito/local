@@ -44,6 +44,21 @@ class OllamaAdapterGate(unittest.TestCase):
         self.assertEqual(transport.sent[2]["format"]["properties"]["file"]["enum"], ["calculator.py"])
         factory.assert_called_once_with("127.0.0.1", 11434, timeout=180)
 
+    def test_v2_localized_request_matches_ollama_wire_schema(self):
+        request = Request("Fix calculator.py", ("calculator.py",), (), output_schema=2)
+        proposed = json.dumps({"schema": 2, "file": "calculator.py",
+                               "old": "return x + 1", "new": "return x + 2"})
+        transport = FakeConnection(FakeResponse(
+            json.dumps({"response": proposed, "done": True}).encode("utf-8")))
+        with patch("ollama_adapter.http.client.HTTPConnection", return_value=transport):
+            payload = generate(request, "nemotron-3-nano:4b")
+        self.assertEqual(json.loads(payload)["schema"], 2)
+        body = transport.sent[2]
+        self.assertEqual(body["format"]["properties"]["schema"]["enum"], [2])
+        self.assertEqual(body["format"]["required"], ["schema", "file", "old", "new"])
+        self.assertEqual(request.to_json()["output_contract"]["schema"], 2)
+        self.assertIn('"output_contract": {"schema": 2', body["prompt"])
+
     def test_fail_closed_transport(self):
         with self.assertRaises(ContractError):
             generate(self.request, "valid:tag", host="192.168.1.2")

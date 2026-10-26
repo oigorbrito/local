@@ -119,6 +119,27 @@ class WorkflowSessionTests(unittest.TestCase):
         self.assertEqual(check(self.session)["status"], "PATCH_READY_FOR_REVIEW")
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
+    def test_versioned_localized_profile_freezes_request_and_validates_patch(self):
+        self.prepared("principal-localizado")
+        saved = json.loads((self.session / REQUEST).read_text(encoding="utf-8"))
+        manifest = json.loads((self.session / MANIFEST).read_text(encoding="utf-8"))
+        self.assertEqual(saved["output_contract"]["schema"], 2)
+        self.assertEqual(manifest["profile"]["output_schema"], 2)
+        self.assertEqual(manifest["profile"]["version"], "2.0.0")
+        payload = json.dumps({
+            "schema": 2, "file": "calculator.py",
+            "old": "return x + 1", "new": "return x + 2"
+        }).encode("utf-8")
+        with patch("profile_cli.generate", return_value=payload) as model:
+            result = generate(self.session, inspector=native_evidence)
+            model.assert_called_once()
+            requested = model.call_args.args[0]
+            self.assertEqual(requested.to_json()["output_contract"]["schema"], 2)
+        self.assertEqual(result["status"], "PATCH_APPLICABLE_NOT_GRADED")
+        self.assertEqual(check(self.session)["status"], "PATCH_READY_FOR_REVIEW")
+        self.assertEqual((self.session / RESPONSE).read_bytes(), payload)
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
     def test_live_inspection_blocks_before_network_generation(self):
         self.prepared()
         with patch("profile_cli.generate") as model:
