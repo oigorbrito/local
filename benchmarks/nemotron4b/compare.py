@@ -206,14 +206,19 @@ def cloi_startup_probe(model, identity):
             try:
                 item = json.loads(line[len("STARTUP_TRACE "):])
                 if item.get("event") in (
-                    "cli_module_bootstrap", "request_created", "response_headers",
+                    "cli_module_bootstrap", "request_created",
+                    "request_body_sent", "response_headers",
                     "response_trailers", "request_error"
                 ) and item.get("route") in (
                     None, "/api/tags", "/api/show", "/api/chat", "/api/generate"
                 ):
                     traces.append({
                         "event": item["event"], "route": item.get("route"),
-                        "ms": item.get("ms"), "detail": item.get("detail")
+                        "ms": item.get("ms"),
+                        "request_id": item.get("request_id"),
+                        "status": item.get("status"),
+                        "error_name": item.get("error_name"),
+                        "error_code": item.get("error_code"),
                     })
             except (ValueError, TypeError, KeyError):
                 pass
