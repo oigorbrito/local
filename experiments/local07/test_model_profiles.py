@@ -2,8 +2,8 @@ import unittest
 from model_profiles import PROFILES, select_profile
 
 class ModelProfileTests(unittest.TestCase):
-    def test_three_profiles(self):
-        self.assertEqual(set(PROFILES), {'principal', 'alternativo', 'economico'})
+    def test_versioned_profile_coexists_with_historical_profiles(self):
+        self.assertEqual(set(PROFILES), {'principal', 'alternativo', 'economico', 'principal-localizado'})
     def test_models(self):
         self.assertEqual(select_profile('principal').base_model, 'nemotron-3-nano:4b')
         self.assertEqual(select_profile('alternativo').base_model, 'qwen3.5:4b')
@@ -17,6 +17,18 @@ class ModelProfileTests(unittest.TestCase):
         for name, value in expected.items():
             self.assertEqual(PROFILES[name].version, "1.0.0")
             self.assertEqual(PROFILES[name].fingerprint, value)
+
+    def test_v2_localized_schema_is_explicit_and_fingerprinted(self):
+        legacy = select_profile('principal')
+        current = select_profile('principal-localizado')
+        self.assertEqual(legacy.manifest()['version'], '1.0.0')
+        self.assertNotIn('output_schema', legacy.manifest())
+        self.assertEqual(current.version, '2.0.0')
+        self.assertEqual(current.output_schema, 2)
+        self.assertEqual(current.manifest()['output_schema'], 2)
+        self.assertIn('schema (integer 2)', current.system)
+        self.assertNotIn('complete replacement source', current.system)
+        self.assertNotEqual(current.fingerprint, legacy.fingerprint)
 
     def test_invalid(self):
         with self.assertRaises(ValueError):
