@@ -296,3 +296,45 @@ Não confundir a recusa esperada `DIAGNOSTIC_GENERATION_BLOCKED`
 com falha real do Ollama. O teste não modifica o modelo,
 a qualidade avaliada, os seis testes independentes nem a
 configuração das comparações.
+
+
+## LOCAL-27: diferenciação SQLite bind mount vs tmpfs
+
+Na execução real do `-StartupProbe` (26/10/2026, evidências em
+`D:\projetos\local-nemotron-cloi-startup-20261026-014944`), os
+31 testes offline passaram, mas o CLI original Cloi 2.1.0 atingiu o
+timeout de **20,022 s** sem criar `cloi-data/cloi.db` e sem chegar à
+recusa deliberada de `/api/chat`. O `-ProbeOnly` do próprio
+provedor Node já havia concluído `/api/tags`, `/api/show` e
+capacidade de ferramentas em **0,709 s**. Isso direciona a perícia para
+os passos entre o preflight e a criação da sessão, mas não demonstra
+isoladamente falha do SQLite ou do volume.
+
+O Cloi fixado usa `Session.create()`, que abre `node:sqlite` e
+configura `PRAGMA journal_mode=WAL`. Para isolar o comportamento do
+filesystem, executar no Windows, a partir desta branch:
+
+    .\benchmarks\nemotron4b\run.ps1 -SqliteProbe -OutputDir "D:\projetos\local-nemotron-cloi-sqlite"
+
+A sonda usa exatamente o módulo de persistência **upstream fixado**
+e testa a criação de sessão/mensagem em dois `CLOI_DATA_DIR`:
+(1) subdiretório novo de `/results` montado do Windows e
+(2) diretório descartável em `/tmp` do contêiner.
+Cada subprocesso Node possui timeout de **8 segundos**.
+Nenhum endpoint de geração é chamado e nenhuma alteração é realizada
+no projeto de origem ou no Cloi doador.
+
+O relatório JSON contém os estágios e status de ambos os ambientes:
+
+- `SQLITE_MOUNT_SUSPECTED`: somente o teste no volume montado falhou,
+  enquanto `/tmp` passou; investigar SQLite/WAL/driver de montagem
+  do Windows antes de mudar o modelo ou o agente.
+- `SQLITE_BOTH_PASS`: o SQLite isolado não reproduziu o travamento;
+  continuar investigando o percurso integrado do CLI original.
+- `SQLITE_NOT_ISOLATED`: `/tmp` também falhou; não atribuir
+  causalidade exclusiva ao volume montado.
+
+`cloi-sqlite-probe/mounted-results.stderr.log` e
+`cloi-sqlite-probe/tmpfs.stderr.log` contêm somente marcos como
+`SQLITE_STAGE_SESSION_CREATE_BEGIN`, sem código de usuário ou
+conversa. Os relatórios anteriores não são alterados.
