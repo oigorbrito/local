@@ -1,0 +1,29 @@
+name: LOCAL-WINNER-01 evidence reconciliation offline
+on:
+  push:
+    branches:
+      - experiment/local-winner01-evidence-ledger
+  pull_request:
+    paths:
+      - "experiments/local_winner01/**"
+      - ".github/workflows/local-winner01.yml"
+  workflow_dispatch:
+jobs:
+  inventory-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Syntax and offline regressions
+        run: |
+          python -B -m py_compile experiments/local_winner01/reconcile.py
+          python -B -m unittest discover -s experiments/local_winner01 -p "test_*.py" -v
+      - name: Offline inventory smoke (no Ollama or Docker)
+        run: |
+          python -B experiments/local_winner01/reconcile.py \
+            --root ./experiments/local_winner01 \
+            --output "$RUNNER_TEMP/local-winner01-smoke.json"
