@@ -24,6 +24,7 @@ _write_lock = threading.Lock()
 _pending = {}
 _pending_lock = threading.Lock()
 _meta_ids = set()
+_broker_stdin_closed = threading.Event()
 _event_lock = threading.Lock()
 GUEST_EVENTS = "/results/guest-bridge-events.jsonl"
 _timeout = 450
@@ -82,6 +83,7 @@ def receive():
                 inbox.put(frame)
         except (ValueError, TypeError):
             continue
+    _broker_stdin_closed.set()
     with _pending_lock:
         all_queues = list(_pending.items())
         metadata_ids = set(_meta_ids)
@@ -105,6 +107,20 @@ class Bridge(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self.send_error(403, "METHOD_NOT_ALLOWED")
+
+    def reject_closed_broker(self):
+        if not _broker_stdin_closed.is_set():
+            return False
+        body = b'{"error":"BROKER_PIPE_CLOSED"}'
+        self.send_response(502)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.close_connection = True
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+        return True
 
     def metadata(self, inbox, request_id):
         """Buffer small fixed metadata replies before sending HTTP 200.
@@ -181,6 +197,8 @@ class Bridge(BaseHTTPRequestHandler):
 
     def bridge(self):
         try:
+            if self.reject_closed_broker():
+                return
             raw_length = self.headers.get("Content-Length", "0")
             length = int(raw_length)
             if length < 0 or length > LIMIT:
@@ -260,6 +278,7 @@ def main():
     global _timeout
     from compare import main as compare_main
     _timeout = 700
+    _broker_stdin_closed.clear()
     threading.Thread(target=receive, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", 11434), Bridge)
     server.daemon_threads = True
