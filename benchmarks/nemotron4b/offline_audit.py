@@ -83,6 +83,9 @@ def audit_trial(evidence, output, fixture, adapter, phase='r01-local09'):
     raw_bytes = candidate.read_bytes()
     result['response_sha256'] = hashlib.sha256(raw_bytes).hexdigest()
     result['raw_response_link'] = raw_match(evidence, raw_bytes, phase)
+    if result['raw_response_link'] != 'MATCH':
+        result['status'] = 'RAW_RESPONSE_NOT_VERIFIED'
+        return result
     try:
         data = json.loads(raw_bytes)
         if not isinstance(data, dict) or set(data) != {'schema', 'file', 'content'} \
@@ -111,6 +114,17 @@ def audit_trial(evidence, output, fixture, adapter, phase='r01-local09'):
         except Exception as exc:
             result['replay'] = {'status': 'REJECTED', 'error_type': type(exc).__name__,
                                 'error': str(exc)[:2000]}
+            patch_bytes = getattr(exc, 'patch_bytes', None)
+            if isinstance(patch_bytes, bytes):
+                (output / 'rejected-validator.patch').write_bytes(patch_bytes)
+                index_check = run(['git', 'apply', '--cached', '--check', '-'],
+                                  cwd=replay_repo, input_bytes=patch_bytes)
+                result['replay']['rejected_patch'] = {
+                    'sha256': hashlib.sha256(patch_bytes).hexdigest(),
+                    'bytes': len(patch_bytes),
+                    'index_recheck_exit': index_check['exit_code'],
+                    'index_recheck_error': index_check['stderr'][:1000],
+                }
             (output / 'replay-trace.log').write_text(traceback.format_exc(), encoding='utf8')
         # Independent evaluation only, not a bypass of production validation.
         direct_repo = fixture_checkout(fixture, Path(tmp) / 'direct')
@@ -136,6 +150,14 @@ def audit_trial(evidence, output, fixture, adapter, phase='r01-local09'):
             'functional_passed': bool(patch_bytes) and index_check['exit_code'] == 0
                                  and independent['exit_code'] == 0,
         }
+    result['diagnosis'] = (
+        'ORIGINAL_VALIDATOR_REJECTS_FUNCTIONAL_CANDIDATE'
+        if result['replay']['status'] == 'REJECTED' and result['direct']['functional_passed']
+        else 'VALIDATOR_ACCEPTED_FUNCTIONAL_CANDIDATE'
+        if result['replay']['status'] == 'ACCEPTED' and result['direct']['functional_passed']
+        else 'CANDIDATE_DID_NOT_PASS_INDEPENDENT_TESTS'
+        if not result['direct']['functional_passed'] else 'REQUIRES_REVIEW'
+    )
     result['status'] = 'AUDITED'
     return result
 
