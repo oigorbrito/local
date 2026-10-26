@@ -54,6 +54,11 @@ jobs:
         run: |
           python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_patch_bytes.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Windows Git diff regression failed" }
+      - name: Exercise guest HTTP/1.1 with Node 22 Undici on Windows
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_guest_http.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Windows sequential preflight HTTP regression failed" }
       - name: Parse and validate Windows benchmark entrypoints
         shell: pwsh
         run: |
