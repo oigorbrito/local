@@ -78,7 +78,7 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
     request = prepare(repo, issue)
 
     def preserve_response(payload):
-        """Persist bounded model bytes before any response or patch validation."""
+        """Persist bounded returned bytes before source and patch validation."""
         if response_json_path is not None:
             if len(payload) > MAX_RESPONSE_BYTES:
                 raise ContractError("RESPONSE_TOO_LARGE")
@@ -95,8 +95,8 @@ def run(repo, issue_json, profile_name, report_path, patch_path, *,
         with pathlib.Path(offline_response_json).open("rb") as stream:
             payload = stream.read(MAX_RESPONSE_BYTES + 1)
         mode = "offline_replay"
-    # Also capture offline replays and injected/mock providers which do not
-    # invoke the transport callback. Never overwrite an already saved reply.
+    # Record the returned reply before the source and patch validation gates.
+    # Never overwrite a response already saved in this session.
     if response_json_path is not None and not pathlib.Path(response_json_path).is_file():
         preserve_response(payload)
     stage('RESPONSE_VALIDATION')
