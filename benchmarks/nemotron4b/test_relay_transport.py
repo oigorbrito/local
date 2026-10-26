@@ -179,6 +179,34 @@ class RelayTransportTests(unittest.TestCase):
         self.assertEqual(denied["error_type"], "ValueError")
         self.assertIsNone(denied["raw_response"])
 
+    def test_startup_probe_never_forwards_model_generation(self):
+        for route in ("/api/chat", "/api/generate"):
+            with self.subTest(route=route):
+                self.proc = _FakeProc()
+                self.metrics.unlink(missing_ok=True)
+                frame = {"kind": "request", "id": self.ident,
+                         "method": "POST", "path": route,
+                         "body": base64.b64encode(json.dumps({
+                             "model": MODEL, "stream": route == "/api/chat",
+                             "messages": [{"role": "user", "content": "SECRET"}],
+                         }).encode()).decode()}
+                with patch.object(relay_host.http.client, "HTTPConnection") as upstream:
+                    relay_host.forward(self.proc, frame, MODEL, 20, self.metrics,
+                                       "startup-cloi", block_generation=True)
+                    upstream.assert_not_called()
+                self.assertEqual([f["kind"] for f in self.proc.stdin.frames],
+                                 ["error"])
+                self.assertIn("DIAGNOSTIC_GENERATION_BLOCKED",
+                              self.proc.stdin.frames[0]["message"])
+                progress = [
+                    json.loads(row) for row in
+                    (Path(self.temp.name) / "relay-request-events.jsonl").read_text().splitlines()
+                    if row.strip()
+                ]
+                self.assertEqual(progress[-1]["stage"],
+                                 "generation_blocked_before_upstream")
+                self.assertNotIn("SECRET", json.dumps(progress))
+
     def test_model_mismatch_does_not_forward(self):
         frame = {"kind": "request", "id": self.ident, "method": "POST",
                  "path": "/api/chat",
