@@ -14,6 +14,7 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
 
 MAX_BODY = 2 * 1024 * 1024
 MAX_REPLY = 8 * 1024 * 1024
@@ -56,10 +57,14 @@ def forward(proc, item, model, timeout, metrics_path, phase):
     ident = item.get("id")
     if not isinstance(ident, str) or len(ident) != 32:
         return
+    started_at = time.monotonic()
     connection = None
     status = "ERROR"
     prompt_tokens = 0
     output_tokens = 0
+    usage_available = False
+    response_complete = False
+    error_type = None
     payload_bytes = 0
     collected = bytearray()
     raw_record = None
@@ -90,6 +95,8 @@ def forward(proc, item, model, timeout, metrics_path, phase):
                 try:
                     data = json.loads(chunk)
                     if data.get("done"):
+                        usage_available = ("prompt_eval_count" in data
+                                           and "eval_count" in data)
                         prompt_tokens = data.get("prompt_eval_count") or 0
                         output_tokens = data.get("eval_count") or 0
                 except (ValueError, AttributeError):
@@ -97,12 +104,16 @@ def forward(proc, item, model, timeout, metrics_path, phase):
         if collected and not streamed:
             try:
                 data = json.loads(collected)
+                usage_available = ("prompt_eval_count" in data
+                                   and "eval_count" in data)
                 prompt_tokens = data.get("prompt_eval_count") or 0
                 output_tokens = data.get("eval_count") or 0
             except (ValueError, AttributeError):
                 pass
         send(proc, {"kind": "end", "id": ident})
+        response_complete = True
     except (OSError, ValueError, TypeError, KeyError) as exc:
+        error_type = type(exc).__name__
         try:
             send(proc, {"kind": "error", "id": ident, "status": 502,
                         "message": str(exc)[:180]})
@@ -126,6 +137,10 @@ def forward(proc, item, model, timeout, metrics_path, phase):
                 "bytes": len(collected),
             }
         metrics = {"request_id": ident, "phase": phase, "http_status": status,
+                   "method": item.get("method"), "path": item.get("path"),
+                   "elapsed_seconds": round(time.monotonic() - started_at, 3),
+                   "response_complete": response_complete,
+                   "usage_available": usage_available, "error_type": error_type,
                    "prompt_tokens": prompt_tokens, "output_tokens": output_tokens,
                    "response_bytes": payload_bytes, "raw_response": raw_record}
         with _stdout_lock:
@@ -208,11 +223,18 @@ def main():
         for row in report.get("runs", []):
             name = "r%02d-%s" % (row["repeat"], row["executor"])
             subset = [m for m in metrics if m.get("phase") == name]
+            generation = [m for m in subset
+                          if m.get("path") in ("/api/chat", "/api/generate")]
             row["inference"] = {
                 "calls": len(subset),
-                "prompt_tokens_total": sum(m["prompt_tokens"] for m in subset),
-                "output_tokens_total": sum(m["output_tokens"] for m in subset),
+                "generation_calls": len(generation),
+                "prompt_tokens_total": sum(m["prompt_tokens"] for m in generation),
+                "output_tokens_total": sum(m["output_tokens"] for m in generation),
+                "generation_usage_missing": sum(
+                    not m.get("usage_available", False) for m in generation),
                 "http_errors": sum(m["http_status"] != "200" for m in subset),
+                "incomplete_responses": sum(
+                    not m.get("response_complete", False) for m in subset),
             }
         report["transport"] = "network-none; Ollama allowlist over Docker stdio"
         report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
