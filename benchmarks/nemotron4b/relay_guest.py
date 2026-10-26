@@ -15,6 +15,8 @@ import threading
 import uuid
 
 LIMIT = 2 * 1024 * 1024
+META_LIMIT = 8 * 1024 * 1024
+META_PATHS = {"/api/tags", "/api/show"}
 _out = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
 _write_lock = threading.Lock()
 _pending = {}
@@ -59,6 +61,65 @@ class Bridge(BaseHTTPRequestHandler):
     def do_DELETE(self):
         self.send_error(403, "METHOD_NOT_ALLOWED")
 
+    def metadata(self, inbox):
+        """Buffer small fixed metadata replies before sending HTTP 200.
+
+        The pinned Cloi isReachable() intentionally checks headers without
+        consuming the first /api/tags body. Sending an upstream 200 before
+        the bridge has received all chunks exposes an incomplete chunked body
+        to Undici while it starts listModels() on another connection.
+
+        Metadata is finite and bounded: use Content-Length and only commit a
+        success response after a complete upstream end frame. Generation
+        endpoints are NOT routed here and retain their original streaming.
+        """
+        payload = bytearray()
+        status = None
+        failure_status = None
+        failure_message = "BROKER_ERROR"
+        while True:
+            try:
+                frame = inbox.get(timeout=_timeout)
+            except queue.Empty:
+                frame = {"kind": "error", "status": 504, "message": "BROKER_TIMEOUT"}
+            kind = frame.get("kind")
+            if kind == "error":
+                failure_status = int(frame.get("status", 502))
+                failure_message = str(frame.get("message", "BROKER_ERROR"))[:180]
+                break
+            if kind == "start" and status is None:
+                status = int(frame.get("status", 200))
+            elif kind == "chunk" and status is not None:
+                raw = base64.b64decode(frame["body"], validate=True)
+                if len(payload) + len(raw) > META_LIMIT:
+                    failure_status = 502
+                    failure_message = "METADATA_RESPONSE_TOO_LARGE"
+                    break
+                payload.extend(raw)
+            elif kind == "end" and status is not None:
+                break
+            else:
+                failure_status = 502
+                failure_message = "BROKER_METADATA_FRAME_INVALID"
+                break
+        if failure_status is not None:
+            # Never emit a half-successful HTTP 200 with an incomplete body.
+            body = json.dumps({"error": failure_message}).encode("utf-8")
+            status = failure_status if 400 <= failure_status <= 599 else 502
+        else:
+            body = bytes(payload)
+            if status is None or not 100 <= status <= 599:
+                body = b'{"error":"BROKER_METADATA_STATUS_INVALID"}'
+                status = 502
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.close_connection = True
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+
     def bridge(self):
         try:
             raw_length = self.headers.get("Content-Length", "0")
@@ -76,6 +137,9 @@ class Bridge(BaseHTTPRequestHandler):
                 emit({"kind": "request", "id": request_id,
                       "method": self.command, "path": self.path,
                       "body": base64.b64encode(body).decode("ascii")})
+                if self.path in META_PATHS:
+                    self.metadata(inbox)
+                    return
                 headers_sent = False
                 while True:
                     try:
