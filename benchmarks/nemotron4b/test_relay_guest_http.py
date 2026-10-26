@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -26,9 +27,15 @@ for (let i = 0; i < 4; i++) {
   });
   if (first.status !== 200 || first.headers.get('connection') !== 'close')
     throw Error('FIRST_RESPONSE_CONNECTION_NOT_CLOSED');
+  if (!first.headers.has('content-length') ||
+      first.headers.has('transfer-encoding'))
+    throw Error('FIRST_METADATA_LENGTH_NOT_FRAMED');
   const second = await fetch(base + '/api/tags', {
     signal: AbortSignal.timeout(3000)
   });
+  if (!second.headers.has('content-length') ||
+      second.headers.has('transfer-encoding'))
+    throw Error('SECOND_METADATA_LENGTH_NOT_FRAMED');
   const tags = await second.json();
   if (!tags.models.some(m => m.name === 'nemotron-3-nano:4b'))
     throw Error('TAGS_BODY_NOT_CONSUMED');
@@ -37,6 +44,9 @@ for (let i = 0; i < 4; i++) {
     body: JSON.stringify({model:'nemotron-3-nano:4b'}),
     signal: AbortSignal.timeout(3000)
   });
+  if (!show.headers.has('content-length') ||
+      show.headers.has('transfer-encoding'))
+    throw Error('SHOW_METADATA_LENGTH_NOT_FRAMED');
   const capabilities = (await show.json()).capabilities;
   if (!capabilities.includes('tools')) throw Error('SHOW_BODY_INCOMPLETE');
   rounds++;
@@ -51,6 +61,7 @@ class GuestUndiciTests(unittest.TestCase):
         if not node:
             self.skipTest("Node not present; Windows and Linux CI have Node")
         created = []
+        reply_workers = []
         payloads = {
             "/api/tags": json.dumps({
                 "models": [{"name": "nemotron-3-nano:4b"}]
@@ -68,14 +79,22 @@ class GuestUndiciTests(unittest.TestCase):
             with relay_guest._pending_lock:
                 queue = relay_guest._pending[frame["id"]]
             payload = payloads[route]
-            queue.put({"kind": "start", "status": 200})
-            for chunk in (payload[:271], payload[271:]):
-                if chunk:
-                    queue.put({
-                        "kind": "chunk",
-                        "body": base64.b64encode(chunk).decode("ascii")
-                    })
-            queue.put({"kind": "end"})
+            def delayed_response():
+                # Simulate the real stdio relay: headers/status can arrive
+                # appreciably before the entire metadata body is forwarded.
+                queue.put({"kind": "start", "status": 200})
+                time.sleep(0.045)
+                for chunk in (payload[:271], payload[271:]):
+                    if chunk:
+                        queue.put({
+                            "kind": "chunk",
+                            "body": base64.b64encode(chunk).decode("ascii")
+                        })
+                    time.sleep(0.03)
+                queue.put({"kind": "end"})
+            worker = threading.Thread(target=delayed_response, daemon=True)
+            reply_workers.append(worker)
+            worker.start()
 
         with patch.object(relay_guest, "emit", side_effect=reply):
             server = ThreadingHTTPServer(("127.0.0.1", 0), relay_guest.Bridge)
@@ -92,6 +111,8 @@ class GuestUndiciTests(unittest.TestCase):
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=3)
+                for worker in reply_workers:
+                    worker.join(timeout=2)
         self.assertEqual(proc.returncode, 0, proc.stderr[-1000:])
         self.assertEqual(json.loads(proc.stdout)["rounds"], 4)
         self.assertEqual(
