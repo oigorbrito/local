@@ -51,7 +51,7 @@ def validate(method, path, body, model):
     return json.dumps(payload, separators=(",", ":")).encode("utf-8"), bool(payload.get("stream"))
 
 
-def forward(proc, item, model, timeout, metrics_path):
+def forward(proc, item, model, timeout, metrics_path, phase):
     ident = item.get("id")
     if not isinstance(ident, str) or len(ident) != 32:
         return
@@ -60,6 +60,7 @@ def forward(proc, item, model, timeout, metrics_path):
     prompt_tokens = 0
     output_tokens = 0
     payload_bytes = 0
+    collected = bytearray()
     try:
         method = item.get("method")
         path = item.get("path")
@@ -77,6 +78,8 @@ def forward(proc, item, model, timeout, metrics_path):
             if not chunk:
                 break
             payload_bytes += len(chunk)
+            if not streamed and path == "/api/generate":
+                collected.extend(chunk)
             if payload_bytes > MAX_REPLY:
                 raise ValueError("OLLAMA_REPLY_TOO_LARGE")
             send(proc, {"kind": "chunk", "id": ident,
@@ -89,6 +92,13 @@ def forward(proc, item, model, timeout, metrics_path):
                         output_tokens = data.get("eval_count") or 0
                 except (ValueError, AttributeError):
                     pass
+        if collected:
+            try:
+                data = json.loads(collected)
+                prompt_tokens = data.get("prompt_eval_count") or 0
+                output_tokens = data.get("eval_count") or 0
+            except (ValueError, AttributeError):
+                pass
         send(proc, {"kind": "end", "id": ident})
     except (OSError, ValueError, TypeError, KeyError) as exc:
         try:
@@ -100,7 +110,7 @@ def forward(proc, item, model, timeout, metrics_path):
     finally:
         if connection:
             connection.close()
-        metrics = {"request_id": ident, "http_status": status,
+        metrics = {"request_id": ident, "phase": phase, "http_status": status,
                    "prompt_tokens": prompt_tokens, "output_tokens": output_tokens,
                    "response_bytes": payload_bytes}
         with _stdout_lock:
@@ -147,6 +157,7 @@ def main():
         "--timeout", str(args.timeout),
     ]
     workers = []
+    phase = "preflight"
     with subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           stderr=None, text=True, encoding="utf-8", bufsize=1) as child:
         try:
@@ -156,11 +167,14 @@ def main():
                 except ValueError:
                     print("INVALID_GUEST_BROKER_FRAME", file=sys.stderr)
                     continue
+                if item.get("kind") == "phase":
+                    phase = str(item.get("name", ""))[:80]
+                    continue
                 if item.get("kind") != "request":
                     print("UNEXPECTED_GUEST_BROKER_FRAME", file=sys.stderr)
                     continue
                 worker = threading.Thread(
-                    target=forward, args=(child, item, args.model, args.timeout, metrics_path),
+                    target=forward, args=(child, item, args.model, args.timeout, metrics_path, phase),
                     daemon=True,
                 )
                 worker.start()
@@ -171,6 +185,23 @@ def main():
             for worker in workers:
                 worker.join(timeout=2)
         exitcode = child.wait()
+    report_path = results / "report.json"
+    if report_path.is_file() and metrics_path.is_file():
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        metrics = [json.loads(line) for line in metrics_path.read_text(
+            encoding="utf-8").splitlines() if line.strip()]
+        for row in report.get("runs", []):
+            name = "r%02d-%s" % (row["repeat"], row["executor"])
+            subset = [m for m in metrics if m.get("phase") == name]
+            row["inference"] = {
+                "calls": len(subset),
+                "prompt_tokens_total": sum(m["prompt_tokens"] for m in subset),
+                "output_tokens_total": sum(m["output_tokens"] for m in subset),
+                "http_errors": sum(m["http_status"] != "200" for m in subset),
+            }
+        report["transport"] = "network-none; Ollama allowlist over Docker stdio"
+        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                               encoding="utf-8")
     if exitcode != 0:
         print("BENCHMARK_EXIT=" + str(exitcode) + " (inspect results directory)",
               file=sys.stderr)
