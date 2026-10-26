@@ -1,4 +1,4 @@
-"""No-generation Cloi preflight control: bounded stage evidence and fail-closed exit."""
+"""No-generation Cloi preflight: bounded stages and fail-closed exit."""
 import json
 from pathlib import Path
 import tempfile
@@ -18,11 +18,11 @@ class CloiProbeTests(unittest.TestCase):
 
     def call_probe(self, *, code, timeout, stderr):
         result = {
-            "code": code, "timeout": timeout, "seconds": 12.0 if timeout else 0.35,
+            "code": code, "timeout": timeout, "seconds": 15.0 if timeout else 0.35,
             "stdout": "", "stderr": stderr,
         }
-        with patch.object(compare, "OUTPUT", self.directory), \\
-             patch.object(compare, "run", return_value=result) as subprocess:
+        with (patch.object(compare, "OUTPUT", self.directory),
+              patch.object(compare, "run", return_value=result) as subprocess):
             status = compare.cloi_preflight_probe(self.identity["tag"], self.identity)
         report = json.loads((self.directory / "report.json").read_text())
         self.assertEqual(subprocess.call_count, 1)
@@ -38,9 +38,11 @@ class CloiProbeTests(unittest.TestCase):
     def test_all_node_stages_pass(self):
         status, report = self.call_probe(
             code=0, timeout=False,
-            stderr="PROBE_NODE_STARTED\\nPROBE_TAGS_HTTP_OK\\n"
-                   "PROBE_TAGS_JSON_PARSED\\nPROBE_SHOW_REQUEST_BEGIN\\n"
-                   "PROBE_SHOW_JSON_PARSED\\nPROBE_PREFLIGHT_PASS\\n",
+            stderr="\n".join([
+                "PROBE_NODE_STARTED", "PROBE_TAGS_HTTP_OK",
+                "PROBE_TAGS_JSON_PARSED", "PROBE_SHOW_REQUEST_BEGIN",
+                "PROBE_SHOW_JSON_PARSED", "PROBE_PREFLIGHT_PASS",
+            ]) + "\n",
         )
         self.assertEqual(status, 0)
         self.assertEqual(report["status"], "PROBE_PASS")
@@ -49,8 +51,8 @@ class CloiProbeTests(unittest.TestCase):
     def test_unfinished_show_is_not_misclassified_as_success(self):
         status, report = self.call_probe(
             code=None, timeout=True,
-            stderr="PROBE_NODE_STARTED\\nPROBE_TAGS_JSON_PARSED\\n"
-                   "PROBE_SHOW_REQUEST_BEGIN\\n",
+            stderr="PROBE_NODE_STARTED\nPROBE_TAGS_JSON_PARSED\n"
+                   "PROBE_SHOW_REQUEST_BEGIN\n",
         )
         self.assertEqual(status, 2)
         self.assertEqual(report["status"], "PROBE_BLOCKED")
