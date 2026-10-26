@@ -16,11 +16,14 @@ import time
 
 from qualify_static import official_rows, EXPECTED_DATASET_SHA256
 from select_cases import freeze, extract, hash_bytes
+from datasets import load_dataset
 from swebench.harness.utils import make_test_spec
 from swebench.harness.grading import get_eval_report
 from swebench.image_builder.constants import CONTAINER_WORKDIR
 
 PILOT = "pvlib__pvlib-python-1854"
+ENRICHED_DATASET = "SWE-bench/SWE-bench_Lite"
+ENRICHED_REVISION = "a0291d6d46bcfa739d77ca942e1ba16006ab7e46"
 MAX_TEST_SECONDS = 240
 IMAGE_WAIT_SECONDS = 600
 
@@ -114,7 +117,18 @@ def execute(case_id=PILOT):
     manifest,_=freeze(raw)
     if case_id not in {c["case_id"] for c in manifest["cases"]}:
         raise RuntimeError("CASE_NOT_IN_FROZEN_SET")
-    row=next(x for x in extract(raw) if x["instance_id"]==case_id)
+    original=next(x for x in extract(raw) if x["instance_id"]==case_id)
+    # Original Princeton dataset has issue/gold/test fields but NOT current
+    # harness metadata. Read only the enriched official SWE-bench dataset at
+    # a fixed HuggingFace commit and verify matching issue/source/gold bytes.
+    enriched=load_dataset(ENRICHED_DATASET,split="dev",revision=ENRICHED_REVISION)
+    matches=[dict(x) for x in enriched if x["instance_id"]==case_id]
+    if len(matches)!=1:
+        raise RuntimeError("ENRICHED_INSTANCE_NOT_FOUND")
+    row=matches[0]
+    for field in ("repo","base_commit","patch","test_patch","problem_statement"):
+        if row.get(field)!=original.get(field):
+            raise RuntimeError("ENRICHED_DATASET_CONTENT_DIFFERS:"+field)
     required=("image","eval_script","log_parser","eval_type","FAIL_TO_PASS",
               "PASS_TO_PASS","version","repo","patch","test_patch")
     missing=[x for x in required if not row.get(x)]
@@ -143,6 +157,7 @@ def execute(case_id=PILOT):
                gold.get("f2p_passed")==len(spec.FAIL_TO_PASS))
     status="FUNCTIONAL_ORACLE_QUALIFIED" if pass_gold else "BLOCKED_GOLD_NOT_RESOLVED"
     return {"status":status,"case_id":case_id,"image_id":image_id,
+            "enriched_dataset_revision":ENRICHED_REVISION,
             "baseline":base,"gold":gold,
             "f2p_expected":len(spec.FAIL_TO_PASS),"p2p_expected":len(spec.PASS_TO_PASS),
             "inference_calls":0,"host_code_execution":False,
