@@ -1,0 +1,38 @@
+name: LOCAL-WINNER-02 static case qualification
+on:
+  push:
+    branches:
+      - experiment/local-winner02-case-qualification
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-qualification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      GIT_LFS_SKIP_SMUDGE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify syntax and all offline contracts
+        run: |
+          python -B -m py_compile experiments/local_winner01/qualify_static.py
+          python -B -m unittest discover -s experiments/local_winner01 -p "test_*.py" -v
+      - name: Static gold/test patch verification on eight pinned Git commits
+        run: |
+          python -B experiments/local_winner01/qualify_static.py \
+            --official-fetch \
+            --git-timeout 90 \
+            --output "$RUNNER_TEMP/qualification.json"
+      - name: Preserve structured evidence even if any case is blocked
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-winner02-static-qualification
+          path: ${{ runner.temp }}/qualification.json
+          if-no-files-found: warn
+          retention-days: 30
