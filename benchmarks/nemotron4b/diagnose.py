@@ -7,7 +7,10 @@ Preserves uncertainty when a timed-out daemon worker did not flush its metrics.
 import argparse
 import json
 from pathlib import Path
+import shutil
+import sqlite3
 import sys
+import tempfile
 
 GENERATION = {"/api/chat", "/api/generate"}
 
@@ -68,11 +71,55 @@ def describe_response(root, record):
     return result
 
 
+def cloi_session_summary(root, repeat):
+    """Count persisted agent steps from a disposable SQLite WAL-aware copy.
+
+    Cloi's original database can contain private messages, tool arguments, and
+    source code. Never query those columns and never write into its directory.
+    """
+    source = root / ("r%02d-cloi" % repeat) / "cloi-data" / "cloi.db"
+    if not source.is_file() or source.is_symlink():
+        return {"database_present": False}
+    with tempfile.TemporaryDirectory(prefix="local27-cloi-session-") as tmp:
+        local = Path(tmp)
+        for suffix in ("", "-wal", "-shm"):
+            path = source.with_name(source.name + suffix)
+            if path.is_file() and not path.is_symlink():
+                shutil.copyfile(path, local / path.name)
+        try:
+            db = sqlite3.connect(str(local / source.name), timeout=3)
+            try:
+                rows = db.execute(
+                    "SELECT role, COUNT(*) FROM messages GROUP BY role"
+                ).fetchall()
+                tools = db.execute(
+                    "SELECT tool_name, COUNT(*) FROM messages "
+                    "WHERE role = 'tool' AND tool_name IS NOT NULL "
+                    "GROUP BY tool_name"
+                ).fetchall()
+                sessions = db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+                results = db.execute("SELECT COUNT(*) FROM results").fetchone()[0]
+            finally:
+                db.close()
+        except sqlite3.DatabaseError as exc:
+            return {"database_present": True,
+                    "readable": False, "error_type": type(exc).__name__}
+    return {
+        "database_present": True, "readable": True,
+        "sessions": sessions, "roles": dict(rows),
+        "tool_results_by_name": dict(tools), "stored_results": results,
+    }
+
+
 def analyze(root):
     report_path = root / "report.json"
     if not report_path.is_file():
         raise ValueError("MISSING_REPORT: " + str(report_path))
     report = json.loads(report_path.read_text(encoding="utf-8"))
+    cloi_sessions = {
+        "r%02d-cloi" % r["repeat"]: cloi_session_summary(root, r["repeat"])
+        for r in report.get("runs", []) if r.get("executor") == "cloi"
+    }
     metrics = load_jsonl(root / "relay-request-metrics.jsonl")
     starts = load_jsonl(root / "relay-request-starts.jsonl")
     events = load_jsonl(root / "relay-request-events.jsonl")
@@ -131,6 +178,7 @@ def analyze(root):
         "blocking": report.get("blocking"),
         "first_executor": report.get("first_executor"),
         "model": report.get("model"),
+        "cloi_sessions": cloi_sessions,
         "runs": [
             {"executor": r.get("executor"), "repeat": r.get("repeat"),
              "seconds": r.get("wall_seconds"), "timed_out": r.get("timed_out"),
