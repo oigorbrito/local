@@ -402,3 +402,40 @@ conteúdo da resposta. Repetir SOMENTE -StartupProbe no Windows
 em diretório novo e exigir STARTUP_REACHED_GENERATION_GATE ou
 examinar eventuais SocketError por request_id. Nenhum trial de
 420 s deve começar antes desse gate.
+
+## LOCAL-27: EOF HTTP no primeiro /api/tags (Windows real)
+
+Na execucao Windows da sonda de inicializacao de 26/10/2026,
+`D:\projetos\local-nemotron-cloi-connection-20261026-022405`,
+o executavel Cloi original passou `--help` em 0,126 s, mas atingiu
+20,024 s de timeout antes de criar cloi.db. O trace Undici confirmou:
+
+- GET /api/tags #1: request_created 193ms, response_headers 200 353ms
+- GET /api/tags #2: request_created 357ms, request_body_sent 361ms
+- GET /api/tags #1: request_error aos 362ms, HTTPParserError
+  HPE_INVALID_EOF_STATE
+
+Isso identifica um EOF de framing na PRIMEIRA resposta HTTP, e nao
+uma falha de SQLite ou de inferencia; a causa exata de por que as
+frames finais nao chegaram nao foi demonstrada no log historico.
+Connection: close isoladamente NAO corrigiu o caso real.
+
+Correcao experimental: relay_guest agora bufferiza so /api/tags
+e /api/show ate receber `end` do broker, aplica limite de 8 MiB,
+e retorna Content-Length preciso com Connection: close. Uma falha
+intermediaria responde com JSON de erro HTTP, sem enviar HTTP 200
+ou corpo parcial. /api/chat e /api/generate preservam streaming.
+Esse comportamento evita anunciar sucesso antes do corpo inteiro
+de metadados chegar, mas ainda requer validacao no Windows real.
+
+Regressao end-to-end sem inferencia usa o servidor guest real e
+Node fetch, com body de metadados atrasado/fracionado, repetindo
+4 ciclos de GET nao consumido -> GET JSON -> POST /api/show.
+Outro teste injeta erro apos frame start e corpo incompleto,
+exigindo resposta completa de erro e proibindo HTTP 200 parcial.
+Essas provas rodam no CI Ubuntu e Windows; o modelo nao e chamado.
+
+Proximo gate: atualizar branch e executar SOMENTE `run.ps1` com
+`-StartupProbe` e uma pasta nova, mantendo /api/chat bloqueado.
+Somente STARTUP_REACHED_GENERATION_GATE permite voltar a uma
+comparacao real do modelo. Sem merge automatico.
