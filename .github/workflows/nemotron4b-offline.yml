@@ -64,6 +64,11 @@ jobs:
         run: |
           python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_guest_stdio.py' -v
           if ($LASTEXITCODE -ne 0) { throw "Guest stdio transport integration failed" }
+      - name: Verify child processes cannot consume the guest broker input
+        shell: pwsh
+        run: |
+          python -B -m unittest discover -s benchmarks/nemotron4b -p 'test_relay_child_stdin.py' -v
+          if ($LASTEXITCODE -ne 0) { throw "Guest stdin ownership regression failed" }
       - name: Parse and validate Windows benchmark entrypoints
         shell: pwsh
         run: |
