@@ -56,3 +56,44 @@ Verificação offline da ponte (não exige Docker Engine nem inferência):
 O script run.ps1 executa esse gate antes de iniciar o contêiner.
 Para sair do bloqueio atual, inicie o Docker Desktop e confirme que
 `docker info --format '{{.ServerVersion}}'` apresenta a versão do servidor.
+
+## LOCAL-27: perícia determinística de tentativas reprovadas
+
+Duas medições reais realizadas em 25/10/2026 e 26/10/2026 tiveram 0/3
+aprovações por executor, com falhas de aplicação de patch do LOCAL-09 e
+timeout/conectividade no Cloi. Estes registros **não** classificam
+superioridade entre executores. O digest registrado foi
+`d94b6dfae26d340fd16599d8cd5301945bb42b6bd7a7c70f2078559562f60cbe`
+(Q4_K_M).
+
+Não repetir geração para diagnosticar um erro cujo JSON já está persistido.
+Após atualizar a branch experimental, com Docker Engine ativo e a imagem
+`local-nemotron4b-comparison:cloi-2.1.0` construída, executar no PowerShell:
+
+    .\benchmarks\nemotron4b\audit.ps1
+
+O script monta os dois diretórios de evidência anteriores **somente leitura**,
+sem rede e sem chamada a Ollama. Para o `r01-local09` de cada rodada, verifica
+o hash SHA-256 da resposta bruta do relay e confere os bytes do JSON recebido;
+reexecuta o validador original em fixture Git descartável; e, separadamente,
+materializa a fonte candidata em outra fixture para aplicar o oráculo de seis
+testes sem alterar resultados antigos. Os relatórios e patches diagnósticos
+ficam em um novo `local-nemotron-audit-AAAAMMDD-HHMMSS` e incluem
+`offline-audit.json`, `candidate.patch`, `independent-tests.log` e, quando
+houver falha, `replay-trace.log`.
+
+Se `replay=REJECTED` e `direct.functional_passed=true`, investigar uma
+divergência do validador antes de mudar a geração; se
+`direct.functional_passed=false`, o candidato ainda não resolveu os testes.
+Esse ensaio **não** contorna validação em produção nem prova o comportamento
+com outras tarefas. Como o conteúdo fornecido pelo modelo é executado como
+código Python, a análise é restrita ao contêiner descartável sem rede e com
+limites de recursos; não executar a fonte no host Windows.
+
+O benchmark agora reporta qualidade funcional independentemente do exit code
+do executor, e aborta novas tentativas após timeout/indisponibilidade de Ollama,
+evitando contaminar as rodadas seguintes. `summary.total` é o número de
+tentativas realmente executadas; `summary.requested` é a meta inicial.
+Métricas de transporte passam a registrar conclusão de resposta e tempo por
+requisição, para não tratar HTTP 200 como prova de resposta efetivamente
+recebida.
