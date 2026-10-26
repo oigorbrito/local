@@ -89,7 +89,7 @@ def create(repo, session, profile_name, task):
         raise ContractError("SESSION_ALREADY_EXISTS")
     if not path.parent.is_dir():
         raise ContractError("SESSION_PARENT_MISSING")
-    request = prepare(root, task)
+    request = prepare(root, task, output_schema=profile.output_schema)
     sources = tracked_sources(root, request.selected_files)
     if head != provenance(root):
         raise ContractError("SOURCE_CHANGED_DURING_PREPARATION")
@@ -153,7 +153,8 @@ def load(session, *, check_sources=True):
     if check_sources:
         if provenance(root) != manifest.get("source_commit"):
             raise ContractError("SESSION_BASE_COMMIT_DRIFT")
-        request = prepare(root, issue["problem_statement"])
+        request = prepare(root, issue["problem_statement"],
+                          output_schema=profile.output_schema)
         if canonical(request.to_json()) != request_blob:
             raise ContractError("SESSION_CONTEXT_DRIFT")
         sources = tracked_sources(root, request.selected_files)
