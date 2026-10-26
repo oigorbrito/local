@@ -19,15 +19,35 @@ def git(repo, *args, input=None):
     return r.stdout
 
 
+class PatchApplicabilityError(RuntimeError):
+    """Index rejected a patch; retain its exact bytes for forensic replay."""
+
+    def __init__(self, detail, patch_bytes):
+        super().__init__('GIT_APPLY_CHECK_FAILED: ' + detail)
+        self.patch_bytes = patch_bytes
+
+
+def git_patch_bytes(repo, *args):
+    """Git diffs are byte streams; text=True silently normalizes CRLF/CR."""
+    proc = subprocess.run(
+        ['git', *args], cwd=repo, capture_output=True, timeout=45
+    )
+    if proc.returncode:
+        raise RuntimeError('git diff failed: ' +
+                           proc.stderr.decode('utf-8', errors='replace')[:300])
+    return proc.stdout
+
+
 def check_patch_index(repo, patch):
-    """Feed UTF-8 patch bytes verbatim: text=True rewrites LF to CRLF on Windows."""
-    data = patch.encode('utf-8')
+    """Apply-check the exact emitted bytes, without newline translation."""
+    data = patch if isinstance(patch, bytes) else patch.encode('utf-8')
     proc = subprocess.run(
         ['git', 'apply', '--cached', '--check', '-'],
         cwd=repo, input=data, capture_output=True, timeout=45
     )
     if proc.returncode:
-        raise RuntimeError('GIT_APPLY_CHECK_FAILED: ' + proc.stderr.decode('utf-8', errors='replace')[:300])
+        detail = proc.stderr.decode('utf-8', errors='replace')[:300]
+        raise PatchApplicabilityError(detail, data)
 
 
 def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_files=2):
@@ -67,13 +87,14 @@ def assess(repo, issue, replacement_path, candidate_source, max_chars=9000, max_
             changed=git(isolated,'diff','--name-only').splitlines()
             if changed!=[replacement_path]: raise ValueError('DIFF_SCOPE_VIOLATION')
             git(isolated,'diff','--check')
-            patch=git(isolated,'diff','--binary','--',replacement_path)
-            if not patch: raise ValueError('NO_CHANGE')
-            check_patch_index(repo, patch)
+            patch_bytes=git_patch_bytes(isolated,'diff','--binary','--',replacement_path)
+            if not patch_bytes: raise ValueError('NO_CHANGE')
+            check_patch_index(repo, patch_bytes)
+            patch=patch_bytes.decode('utf-8')
             report={'result':'PATCH_APPLICABLE_NOT_GRADED','commit':baseline,'selected_files':allowed,
                     'edited_file':replacement_path,'context_chars':outcome['context_chars'],
-                    'source_sha256':original_sha,'patch_sha256':hashlib.sha256(patch.encode()).hexdigest(),
-                    'patch_bytes':len(patch.encode())}
+                    'source_sha256':original_sha,'patch_sha256':hashlib.sha256(patch_bytes).hexdigest(),
+                    'patch_bytes':len(patch_bytes)}
             return report,patch
         finally:
             git(repo,'worktree','remove','--force',str(isolated))
