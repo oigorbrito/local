@@ -229,3 +229,36 @@ de bytes e códigos HTTP são incluídos nos eventos. A alteração não
 muda temperatura, modelo, contexto, limites ou fluxo de ferramentas.
 Esses eventos **não estão retroativamente disponíveis** na rodada
 histórica e não justificam reexecução de 420 s sem uma hipótese nova.
+
+
+## LOCAL-27: Cloi provider preflight sem inferência
+
+A perícia histórica encontrou resposta completa de `POST /api/show`
+(22.704 bytes) no host, mas nenhum `cloi.db` em
+`r01-cloi/cloi-data`. No commit fixado de Cloi, o banco é criado
+por `Session.create()` **depois** de `supportsTools(model)`,
+que aguarda `fetch('/api/show').json()`. Assim, as observações
+são compatíveis com um bloqueio no preflight do cliente Node,
+mas não provam em qual lado da ponte o fluxo parou.
+
+Antes de repetir a geração, executar na branch experimental:
+
+    .\benchmarks\nemotron4b\run.ps1 -ProbeOnly -OutputDir "D:\projetos\local-nemotron-cloi-preflight"
+
+O modo usa as **funções reais do fornecedor Cloi 2.1.0**
+(`isReachable`, `listModels` e `supportsTools`) para validar
+a leitura integral dos metadados e suporte à capacidade `tools`,
+no mesmo contêiner sem rede e através do mesmo relay. Não invoca
+`/api/chat` ou `/api/generate`. O subprocesso Node tem
+timeout de **15 segundos**, com etapas duráveis em
+`cloi-preflight-probe/stderr.log`, métricas de início/progresso/fim
+no relay e `report.json` com `PROBE_PASS` ou `PROBE_BLOCKED`.
+
+Se parar após `PROBE_SHOW_REQUEST_BEGIN`, confrontar
+`relay-request-events.jsonl` para distinguir envio ao upstream,
+recebimento de cabeçalhos, primeiro chunk e conclusão de transmissão.
+Se houver `PROBE_SHOW_JSON_PARSED`, o cliente Node concluiu
+esse preflight específico e a investigação deve seguir para o
+ciclo de início de sessão, sem atribuir um bug ao transporte.
+Esse teste ainda não executa o agente nem garante qualidade de
+correção. Não iniciá-lo com uma pasta que já contém um relatório.
