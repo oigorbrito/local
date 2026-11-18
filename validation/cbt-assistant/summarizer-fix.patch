@@ -1,0 +1,33 @@
+--- a/src/memory/summarizer.py
++++ b/src/memory/summarizer.py
+@@ -46,14 +46,12 @@
+             old=old_summary or "Нет данных", new=formatted_msgs
+         )
+ 
+-        try:
+-            resp = await self.llm_client.chat(
+-                [{"role": "user", "content": final_prompt}]
+-            )
+-            return resp.get("content", "").strip()
+-        except Exception as e:
+-            logger.error(f"Failed to generate memory summary: {e}")
+-            return old_summary
++        # Failures propagate to the caller. Returning old_summary here made a
++        # failed update look like a success, so memory stopped growing silently.
++        resp = await self.llm_client.chat(
++            [{"role": "user", "content": final_prompt}]
++        )
++        return resp.get("content", "").strip()
+ 
+     async def maybe_summarize(self, session_id: str):
+         task = asyncio.create_task(self._process_summarization(session_id))
+@@ -97,4 +95,8 @@
+                 logger.info(f"Saved new summary for session {session_id}")
+ 
+         except Exception as e:
+-            logger.error(f"Error in background summarization process: {e}")
++            # Nothing was saved, so the messages stay unsummarized and the next
++            # trigger retries them.
++            logger.warning(
++                f"Summary for session {session_id} not updated; will retry on a later turn: {e}"
++            )
