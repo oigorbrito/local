@@ -1,6 +1,24 @@
 --- a/src/memory/summarizer.py
 +++ b/src/memory/summarizer.py
-@@ -46,14 +46,12 @@
+@@ -1,4 +1,5 @@
+ import asyncio
++import time
+ from typing import List, Dict
+ import logging
+ 
+@@ -15,6 +16,11 @@
+         self.trigger_threshold = 15  # Summarize every 15 new messages
+         self._tasks: set[asyncio.Task] = set()
+         self._session_locks: dict[str, asyncio.Lock] = {}
++        # After a failed update, wait before retrying the same session, so a slow
++        # or unavailable model is not called on every turn.
++        self.retry_cooldown_s = 300.0
++        self._clock = time.monotonic
++        self._cooldown_until: dict[str, float] = {}
+ 
+     async def _generate_summary(
+         self, old_summary: str, recent_messages: List[Dict]
+@@ -46,14 +52,12 @@
              old=old_summary or "Нет данных", new=formatted_msgs
          )
  
@@ -21,13 +39,29 @@
  
      async def maybe_summarize(self, session_id: str):
          task = asyncio.create_task(self._process_summarization(session_id))
-@@ -97,4 +95,8 @@
+@@ -72,6 +76,10 @@
+ 
+     async def _process_summarization_locked(self, session_id: str):
+         try:
++            # 0. Respect the cooldown after a recent failure.
++            if self._clock() < self._cooldown_until.get(session_id, 0.0):
++                return
++
+             # 1. Check if we need to summarize
+             msg_count = self.db.get_message_count_since_last_summary(session_id)
+             if msg_count < self.trigger_threshold:
+@@ -95,6 +103,13 @@
+                 # 4. Save to DB
+                 self.db.save_session_summary(session_id, new_summary)
                  logger.info(f"Saved new summary for session {session_id}")
++            self._cooldown_until.pop(session_id, None)
  
          except Exception as e:
 -            logger.error(f"Error in background summarization process: {e}")
 +            # Nothing was saved, so the messages stay unsummarized and the next
 +            # trigger retries them.
++            self._cooldown_until[session_id] = self._clock() + self.retry_cooldown_s
 +            logger.warning(
-+                f"Summary for session {session_id} not updated; will retry on a later turn: {e}"
++                f"Summary for session {session_id} not updated; retry allowed after "
++                f"{self.retry_cooldown_s:.0f}s: {e}"
 +            )

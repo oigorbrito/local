@@ -54,3 +54,19 @@ patch with the original code. Several leftover Ollama servers were also running
 at the same time, which exhausted memory. Those results are not used here.
 
 Still open: the cooldown for repeated retries on slow hardware (see above).
+
+## Cooldown after a failed summary (in `summarizer-fix.patch`)
+
+After a failed update, the same session is not retried for `retry_cooldown_s`
+seconds (default 300). A successful update clears the cooldown. The cooldown is
+per session, so one failing session does not block others.
+
+`test_summarizer_cooldown.py` covers: no model call during the cooldown; retry and save
+after it; per-session isolation. `test_summarizer_retry.py` disables the cooldown
+explicitly to test the retry path on its own.
+
+Mutation check: with the cooldown set to zero, `test_failure_blocks_model_calls_during_cooldown`
+fails, so the test does detect a missing cooldown.
+
+Offline results with the patch: 62 passed, 2 failed (crisis tests, out of scope),
+1 skipped (live Ollama test, Ollama not running in that run).

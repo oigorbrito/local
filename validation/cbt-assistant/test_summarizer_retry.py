@@ -28,6 +28,7 @@ async def test_failed_summary_keeps_messages_and_retry_saves(tmp_path):
     llm = FlakyLLM(failures=1)
     summarizer = MemorySummarizer(db, llm)
     summarizer.trigger_threshold = 2
+    summarizer.retry_cooldown_s = 0  # this test covers the retry path only
 
     # First attempt fails: nothing saved, messages still pending.
     await summarizer._process_summarization("s1")
