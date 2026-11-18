@@ -38,3 +38,19 @@ rerun with Ollama after the change.
 
 Known trade-off: a failed update is retried on every chat turn while the threshold is
 exceeded. On slow hardware that repeats the expensive call; a cooldown is not added yet.
+
+## Live test with Ollama (patched copy)
+
+`test_real_memory_summarization` (Ollama `qwen3.5:9b` on a 4-vCPU CPU host, no GPU,
+network disabled, original 120 s client timeout):
+
+- Three sequential runs, one Ollama server: **3 / 3 passed**, 55–89 s each.
+  Raw output: `live-series-log.txt`.
+- Each run makes two summarization steps (summary, then recursive update); the
+  individual model calls took about 20–46 s.
+
+Earlier failures of this test (120 s timeouts, one 500) were measured before the
+patch with the original code. Several leftover Ollama servers were also running
+at the same time, which exhausted memory. Those results are not used here.
+
+Still open: the cooldown for repeated retries on slow hardware (see above).

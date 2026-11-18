@@ -1,0 +1,6 @@
+== run 1
+1 passed in 89.19s (0:01:29)
+== run 2
+1 passed in 55.47s
+== run 3
+1 passed in 81.26s (0:01:21)
